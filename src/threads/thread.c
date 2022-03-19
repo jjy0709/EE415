@@ -275,10 +275,10 @@ thread_sleep (int64_t ticks)
   enum intr_level old_level;
   ASSERT(!intr_context());
 
+  old_level = intr_disable();
+  
   struct thread *t = thread_current();
   t->wake_time = ticks;
-  
-  old_level = intr_disable();
 
   list_push_back(&block_list, &t->elem);
   thread_block();
