@@ -108,7 +108,6 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  initial_thread->wake_time = 0;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -359,6 +358,9 @@ thread_exit (void)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
+  
+  if(thread_report_latency) printf("Thread %s completed in %d ticks\n", thread_current()->name, timer_elapsed(thread_current()->birth_time));
+
   intr_disable ();
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
@@ -574,6 +576,11 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->holdings);
   t->magic = THREAD_MAGIC;
 
+  t->wake_time = 0;
+  t->cpu = 0;
+  t->nice = 0;
+  t->birth_time = timer_ticks();
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -713,7 +720,7 @@ void cal_cpu (void){
 	if (thread_current()!=idle_thread){
 		int cpu=thread_current()->cpu;
 		int nc=thread_current()->nice;
-		thread_current()->cpu=recent_cpu_eq(cpu, nc);
+		thread_current()->cpu=cpu_eq(cpu, nc);
 	}
 	struct list_elem *cursor;
 	cursor=list_begin(&block_list);

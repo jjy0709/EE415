@@ -96,6 +96,8 @@ struct thread
 
     int64_t wake_time;
 
+    int64_t birth_time;
+
     int nice;
     int cpu;
 

@@ -184,7 +184,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick ();
 
   if (thread_mlfqs==true){
-	  thread_inc_recent_cpu();
+	  inc_cpu();
 
 		if (ticks%TIMER_FREQ==0 && ticks!=0){
 			cal_load_avg();
