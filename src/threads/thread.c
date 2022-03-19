@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+// for mlfqs
+#include "threads/fixed-point.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -30,6 +32,9 @@ static struct list all_list;
 
 // List of blocked thread.
 static struct list block_list;
+
+// average load
+static int load_avg=0;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -410,13 +415,16 @@ isDonated (void)
 void
 thread_set_priority (int new_priority) 
 {
-  if(isDonated()) {
-    thread_current()->original_priority = new_priority;
-  } else {
-    thread_current()->original_priority = new_priority;
-    thread_current()->surface_priority = new_priority;
-    thread_yield();
+  if(!thread_mlfqs){
+    if(isDonated()) {
+      thread_current()->original_priority = new_priority;
+    } else {
+      thread_current()->original_priority = new_priority;
+      thread_current()->surface_priority = new_priority;
+      thread_yield();
+    }
   }
+  else return;
 }
 
 /* Returns the current thread's priority. */
@@ -430,31 +438,50 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  enum intr_level old_level;
+	old_level=intr_disable();
+
+	thread_current()->nice=nice;
+
+	int cpu=thread_current()->cpu;
+	thread_current()->surface_priority=priority_eq(cpu, nice);
+	thread_yield();
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+	enum intr_level old_level;
+	old_level=intr_disable();
+	int nc=thread_current()->nice;
+	intr_set_level(old_level);
+	return nc;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+	enum intr_level old_level;
+	old_level=intr_disable();
+	int ans=load_avg;
+	int ans2=to_int_round(ans*100);
+	intr_set_level(old_level);
+	return ans2;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+	enum intr_level old_level;
+	old_level=intr_disable();
+	int cpu=thread_current()->cpu;
+	int cpu2=to_int_round(cpu*100);
+	intr_set_level(old_level);
+	return cpu2;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -672,4 +699,81 @@ priority_lseq(struct list_elem *elem1, struct list_elem *elem2, void *aux)
   int priority1 = list_entry(elem1, struct thread, elem)->surface_priority;
   int priority2 = list_entry(elem2, struct thread, elem)->surface_priority;
   return (priority1 > priority2);
+}
+
+void inc_cpu(void){
+	if (thread_current()==idle_thread) return;
+	else {
+		int ans=thread_current()->cpu;
+		thread_current()->cpu=add_n(ans,1);
+	}
+}
+
+void cal_cpu (void){
+	if (thread_current()!=idle_thread){
+		int cpu=thread_current()->cpu;
+		int nc=thread_current()->nice;
+		thread_current()->cpu=recent_cpu_eq(cpu, nc);
+	}
+	struct list_elem *cursor;
+	cursor=list_begin(&block_list);
+	while (cursor!=list_end(&block_list)){
+		int cpu1=list_entry(cursor, struct thread, elem)->cpu;
+		int nc1=list_entry(cursor, struct thread, elem)->nice;
+		list_entry(cursor, struct thread, elem)->cpu=cpu_eq(cpu1, nc1);
+		cursor=list_next(cursor);
+	}
+	
+	struct list_elem *cursor2;
+	cursor2=list_begin(&ready_list);
+	while (cursor2!=list_end(&ready_list)){
+		int cpu2=list_entry(cursor2, struct thread, elem)->cpu;
+		int nc2=list_entry(cursor2, struct thread, elem)->nice;
+		list_entry(cursor2, struct thread, elem)->cpu=cpu_eq(cpu2, nc2);
+		cursor2=list_next(cursor2);
+	}
+}
+
+void cal_load_avg(void){
+  int num=list_size(&ready_list);
+	if (thread_current()!=idle_thread) num++;
+	load_avg=mult(div(to_fp(59), to_fp(60)), load_avg)+div(to_fp(num), to_fp(60));
+}
+
+void cal_priority(void){
+  if (thread_current()!=idle_thread){
+		int cpu=thread_current()->cpu;
+		int nc=thread_current()->nice;
+		thread_current()->surface_priority=priority_eq(cpu, nc);
+	}
+	struct list_elem *cursor;
+	cursor=list_begin(&block_list);
+	while (cursor!=list_end(&block_list)){
+		int cpu1=list_entry(cursor, struct thread, elem)->cpu;
+		int nc1=list_entry(cursor, struct thread, elem)->nice;
+		list_entry(cursor, struct thread, elem)->surface_priority=priority_eq(cpu1, nc1);
+		cursor=list_next(cursor);
+	}
+	
+	struct list_elem *cursor2;
+	cursor2=list_begin(&ready_list);
+	while (cursor2!=list_end(&ready_list)){
+		int cpu2=list_entry(cursor2, struct thread, elem)->cpu;
+		int nc2=list_entry(cursor2, struct thread, elem)->nice;
+		list_entry(cursor2, struct thread, elem)->surface_priority=priority_eq(cpu2, nc2);
+		cursor2=list_next(cursor2);
+	}
+}
+
+int cpu_eq(int cur, int nice){
+	int ans=div((2*load_avg),add_n(2*load_avg, 1));
+	int ans2=add_n(mult(ans, cur), nice);
+	return ans2;
+}
+
+int priority_eq(int cpu, int nc){
+	int ans=to_int_round(to_fp(PRI_MAX)-div(cpu, to_fp(4))-to_fp(nc*2));
+	if (ans>=63) ans=63;
+	if (ans<=0) ans=0;
+	return ans;
 }

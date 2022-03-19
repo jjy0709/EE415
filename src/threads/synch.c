@@ -114,15 +114,15 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) {
-    list_sort(&sema->waiters, priority_lseq, NULL);
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
-  }
+    if (!list_empty (&sema->waiters)) {
+      if (!thread_mlfqs) list_sort(&sema->waiters, priority_lseq, NULL);
+      thread_unblock (list_entry (list_pop_front (&sema->waiters),
+                                  struct thread, elem));
+    }
 
-  sema->value++;
-  intr_set_level (old_level);
-  thread_yield();
+    sema->value++;
+    intr_set_level (old_level);
+    thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -201,16 +201,23 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  struct thread *curr = thread_current();
-  if(sema_try_down(&lock->semaphore)){
-    lock->holder = curr;
-    list_push_back(&curr->holdings, &lock->elem);
-  } else {
-    thread_current()->waiting = lock;
-    donate(thread_current());
+  if(!thread_mlfqs){
+    struct thread *curr = thread_current();
+    if(sema_try_down(&lock->semaphore)){
+      lock->holder = curr;
+      list_push_back(&curr->holdings, &lock->elem);
+    } else {
+      thread_current()->waiting = lock;
+      donate(thread_current());
+      sema_down (&lock->semaphore);
+      lock->holder = curr;
+      list_push_back(&curr->holdings, &lock->elem);
+    }
+  }
+
+  else {
     sema_down (&lock->semaphore);
-    lock->holder = curr;
-    list_push_back(&curr->holdings, &lock->elem);
+    lock->holder = thread_current ();
   }
 }
 
@@ -259,14 +266,21 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  list_remove(&lock->elem);
-  struct thread *t = thread_current();
-  // struct thread *t = lock->holder;
-  if(getMaxPrior(&t->holdings) > t->original_priority) t->surface_priority = getMaxPrior(&t->holdings);
-  else t->surface_priority = t->original_priority;
+  if (!thread_mlfqs){
+    list_remove(&lock->elem);
+    struct thread *t = thread_current();
+    // struct thread *t = lock->holder;
+    if(getMaxPrior(&t->holdings) > t->original_priority) t->surface_priority = getMaxPrior(&t->holdings);
+    else t->surface_priority = t->original_priority;
 
-  lock->holder = NULL;
-  sema_up (&lock->semaphore);
+    lock->holder = NULL;
+    sema_up (&lock->semaphore);
+  }
+
+  else {
+		lock->holder=NULL;
+		sema_up (&lock->semaphore);
+	}
 }
 
 int
@@ -297,7 +311,7 @@ lock_held_by_current_thread (const struct lock *lock)
 
   return lock->holder == thread_current ();
 }
-
+
 /* One semaphore in a list. */
 struct semaphore_elem 
   {

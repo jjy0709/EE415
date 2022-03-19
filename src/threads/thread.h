@@ -96,6 +96,9 @@ struct thread
 
     int64_t wake_time;
 
+    int nice;
+    int cpu;
+
     struct lock *waiting;
     struct list holdings;
 
@@ -145,6 +148,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void inc_cpu(void);
+void cal_cpu (void);
+void cal_load_avg(void);
+void cal_priority(void);
+int cpu_eq(int cur, int nice); 
+int priority_eq(int cpu, int nc);
 
 bool priority_lseq(struct list_elem *elem1, struct list_elem *elem2, void *aux);
 
