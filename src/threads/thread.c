@@ -417,12 +417,17 @@ isDonated (void)
 void
 thread_set_priority (int new_priority) 
 {
+  enum intr_level old_level;
+  old_level = intr_disable();
+
   if(!thread_mlfqs){
     if(isDonated()) {
       thread_current()->original_priority = new_priority;
+      intr_set_level(old_level);
     } else {
       thread_current()->original_priority = new_priority;
       thread_current()->surface_priority = new_priority;
+      intr_set_level(old_level);
       thread_yield();
     }
   }
