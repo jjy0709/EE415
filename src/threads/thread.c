@@ -224,7 +224,8 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
 
   /* Initialize thread. */
-  init_thread (t, name, priority);
+  if (thread_mlfqs) init_thread(t, name, PRI_DEFAULT);
+  else init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */

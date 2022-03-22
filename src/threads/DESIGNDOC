@@ -234,6 +234,11 @@ priority donation list를 consider했었으나 이 경우 어떤 lock을 어떤 
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+In struct thread:
+    int nice;
+    int cpu;
+We added integer 'nice' and 'cpu' in struct thread to keep track of each thread's nice value and recent cpu value.
+
 ---- ALGORITHMS ----
 
 >> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
@@ -244,23 +249,28 @@ priority donation list를 consider했었으나 이 경우 어떤 lock을 어떤 
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ 0      0   0   0   63  61  59      A              
+ 4      4   0   0   62  61  59      A
+ 8      8   0   0   61  61  59      B
+12      8   4   0   61  60  59      A
+16      12  4   0   60  60  59      B
+20      12  8   0   60  59  59      A   
+24      16  8   0   59  59  59      C
+28      16  8   4   59  59  58      B
+32      16  12  4   59  58  58      A
+36      20  12  4   58  58  58      C
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
+When there are multiple highest-priority threads, we run it in order so that the thread that has been waiting longest runs first (FIFO). Our code works this way.
+
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
+
+We put all computation of recent_cpu time, load_avg, priority inside the timer interrupt handler.
+This may affect the performance in a bad way (because the less work inside the interrupt handler, the better), but since our implementation passed all the tests successfully, we thought it was not neccessary to fix or reimplement.
 
 ---- RATIONALE ----
 
@@ -269,12 +279,18 @@ ticks   A   B   C   A   B   C   to run
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
+As I mentioned in C4, we would have found a way to make the computation of load_avg, recent cpu time, and priority outside the timer interrupt.
+
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
 >> decide to implement it the way you did?  If you created an
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+
+We made fixed-point.h inside threads folder and implemented all the fixed-point related arithmetic abstraction.
+We decided to implement 8 requisite & distinct functions among the 11 functions inside the 4.4BSD document.
+Did so because without this abstraction, writing complex equation related to mlfqs scheduling makes the code hardly legible.
 
                SURVEY QUESTIONS
                ================
