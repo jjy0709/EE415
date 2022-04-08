@@ -198,6 +198,14 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  t->fd = palloc_get_page(PAL_ZERO);
+  #ifdef USERPROG
+    // list_init(&t->children);
+    // list_push_back(&running_thread()->children, &t->child_elem);
+    // t->parent = running_thread();
+    // sema_init(&t->wait_sema, 0);
+    // t->fd[0] = 
+  #endif
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -473,8 +481,9 @@ init_thread (struct thread *t, const char *name, int priority)
     list_push_back(&running_thread()->children, &t->child_elem);
     t->parent = running_thread();
     sema_init(&t->wait_sema, 0);
+    // t->fd = palloc_get_page(PAL_ZERO);
+    // t->fd[0] = 
   #endif
-
   intr_set_level (old_level);
 }
 

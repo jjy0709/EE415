@@ -104,7 +104,9 @@ struct thread
     struct list children;
     struct list_elem child_elem;
     struct semaphore wait_sema;
+
 #endif
+    struct file **fd;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
