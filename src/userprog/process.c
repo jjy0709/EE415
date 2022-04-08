@@ -31,6 +31,9 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  char *token, *save_ptr;
+  char * filename;
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -38,11 +41,73 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  token = strtok_r((char*) file_name, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
+}
+
+void *
+argument_stack(int argc, char* argv[], void *stackpointer) {
+  char **_argv, **tmp;
+  int i, str_len;
+  char *real[argc];
+
+  // tmp = (_argv = palloc_get_page (0));
+	/* Copy argv to stack. */
+	for (i = argc - 1; i >= 0; i--) {
+		str_len = strlen (argv[i]) + 1;
+		// *(tmp++) = (char *)(stackpointer -= str_len);
+    stackpointer -= str_len;
+		strlcpy ((char *)stackpointer, argv[i], str_len);
+    real[i] = (char *)stackpointer;
+  }
+
+	while((int) stackpointer % 4 != 0) {
+    stackpointer--;
+  }
+
+	/* Push argv[argc]. */
+	stackpointer -= 4;
+	*((char *)stackpointer) = NULL;
+
+	/* Push argv pointers to user stack. */
+	tmp = _argv;
+	for (i = argc-1; i >= 0; i--) {
+		stackpointer -= 4;
+    *(uint32_t*) stackpointer = (uint32_t)real[i];
+	}
+  
+  stackpointer -= 4;
+  *((uint32_t *)stackpointer) = (uint32_t)(stackpointer+4);
+
+  stackpointer -= 4;
+  *((int *)stackpointer) = argc;
+
+	/* Push return address(NULL). */
+	stackpointer -= 4;
+	// *((char *)stackpointer) = NULL;
+
+	// palloc_free_page (_argv);
+
+  // for(int i = argc-1; i > -1; i--) {
+  //   *stackpointer++= *argv[i];
+  // }
+  // while((int)stackpointer % 4 != 0) {
+  //   stackpointer++;
+  // }
+  // for(int j = argc; j > -1; j--) {
+  //   *stackpointer = argv[j];
+  //   stackpointer += 4;
+  // }
+  // *stackpointer = argv;
+  // stackpointer += 4;
+  // *stackpointer = argc;
+  // stackpointer += 4;
+  return stackpointer;
 }
 
 /* A thread function that loads a user process and starts it
@@ -50,7 +115,13 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
-  char *file_name = file_name_;
+  char **fn_copy, *save_ptr;
+  fn_copy = palloc_get_page(0);
+  if (fn_copy == NULL)
+    return TID_ERROR;
+  strlcpy(fn_copy, file_name_, PGSIZE);
+
+  char *file_name = strtok_r((char*)file_name_, " ", &save_ptr);
   struct intr_frame if_;
   bool success;
 
@@ -66,6 +137,22 @@ start_process (void *file_name_)
   if (!success) 
     thread_exit ();
 
+  char *token;
+  int argc;
+  char** argv, **tmp;
+  tmp = (argv = palloc_get_page(0));
+  // tmp = argv;
+  void *esp = if_.esp;
+  for(token = strtok_r(fn_copy, " ", &save_ptr);token != NULL;token = strtok_r(NULL, " ", &save_ptr)){
+    *tmp++=token;
+  }
+  argc = tmp - argv;
+
+  if_.esp = argument_stack(argc, argv, esp);
+  // hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+  palloc_free_page(argv);
+  palloc_free_page(fn_copy);
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -88,6 +175,25 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  // process_execute(child_tid);
+  struct thread *t = thread_current();
+  // uint64_t i = 0;
+  // while(i < 20000000000){
+  //   i++;
+  // }
+  #ifdef USERPROG
+    struct list_elem *e;
+    struct thread *child;
+    for(e = list_front(&t->children);e != list_end(&t->children); e = list_next(e)) {
+      child = list_entry(e, struct thread, child_elem);
+      if(child->tid == child_tid) break;
+    }
+    if(child == NULL)
+      return -1;
+    sema_down(&child->wait_sema);
+    return child->exit_status;
+    // list_remove(&child->child_elem);
+  #endif
   return -1;
 }
 

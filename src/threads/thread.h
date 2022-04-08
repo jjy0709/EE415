@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 
+#include "threads/synch.h"
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -87,26 +89,21 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int original_priority;                       /* Priority. */
-    int surface_priority;
+    int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+
+    int exit_status;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    int64_t wake_time;
-
-    int64_t birth_time;
-
-    int nice;
-    int cpu;
-
-    struct lock *waiting;
-    struct list holdings;
-
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct thread *parent;
+    struct list children;
+    struct list_elem child_elem;
+    struct semaphore wait_sema;
 #endif
 
     /* Owned by thread.c. */
@@ -117,7 +114,6 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-extern bool thread_report_latency;
 
 void thread_init (void);
 void thread_start (void);
@@ -129,7 +125,6 @@ typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
-void thread_sleep (int64_t ticks);
 void thread_unblock (struct thread *);
 
 struct thread *thread_current (void);
@@ -150,14 +145,5 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-void inc_cpu(void);
-void cal_cpu (void);
-void cal_load_avg(void);
-void cal_priority(void);
-int cpu_eq(int cur, int nice); 
-int priority_eq(int cpu, int nc);
-
-bool priority_lseq(struct list_elem *elem1, struct list_elem *elem2, void *aux);
 
 #endif /* threads/thread.h */
