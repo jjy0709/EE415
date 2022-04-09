@@ -201,8 +201,8 @@ thread_create (const char *name, int priority,
   t->fd = palloc_get_page(PAL_ZERO);
   #ifdef USERPROG
     // list_init(&t->children);
-    // list_push_back(&running_thread()->children, &t->child_elem);
-    // t->parent = running_thread();
+    list_push_back(&thread_current()->children, &t->child_elem);
+    t->parent = thread_current();
     // sema_init(&t->wait_sema, 0);
     // t->fd[0] = 
   #endif
@@ -292,8 +292,8 @@ thread_exit (void)
 
 #ifdef USERPROG
   process_exit ();
-  thread_current()->parent->child_exit_status = thread_current()->exit_status;
-  list_remove(&thread_current()->child_elem);
+  // thread_current()->parent = NULL;
+  sema_up(&thread_current()->exec_sema);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,
@@ -479,8 +479,8 @@ init_thread (struct thread *t, const char *name, int priority)
 
   #ifdef USERPROG
     list_init(&t->children);
-    list_push_back(&running_thread()->children, &t->child_elem);
-    t->parent = running_thread();
+    // list_push_back(&running_thread()->children, &t->child_elem);
+    // t->parent = running_thread();
     sema_init(&t->wait_sema, 0);
     sema_init(&t->exec_sema, 0);
     // t->fd = palloc_get_page(PAL_ZERO);
@@ -558,7 +558,7 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
-      palloc_free_page (prev);
+      // palloc_free_page (prev);
     }
 }
 

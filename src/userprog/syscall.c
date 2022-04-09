@@ -71,12 +71,12 @@ syscall_handler (struct intr_frame *f UNUSED)
       child = list_entry(e, struct thread, child_elem);
       if(child->tid == exec_result) break;
     }
-    if(e == list_back(&thread_current()->children)) {
+    if(e == list_end(&thread_current()->children)) {
       f->eax = -1;
       return;
     }
     sema_down(&child->exec_sema);
-    if(child->exec_sema.value > 0) {
+    if(child->exec_success) {
       f->eax = exec_result;
     } else {
       f->eax = -1;
@@ -204,8 +204,8 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     else{
       struct file *filename = thread_current()->fd[num];
-      off_t res = file_write(filename, *(const void **)buffer, (off_t)size);
-      f->eax = res;
+        off_t res = file_write(filename, *(const void **)buffer, (off_t)size);
+        f->eax = res;
     }
     break;
   }

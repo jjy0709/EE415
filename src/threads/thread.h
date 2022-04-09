@@ -106,6 +106,7 @@ struct thread
     struct semaphore wait_sema;
     struct semaphore exec_sema;
     int child_exit_status;
+    bool exec_success;
 #endif
     struct file **fd;
 

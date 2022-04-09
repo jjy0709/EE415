@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -135,16 +136,15 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name);
 
-  #ifdef USERPROG
-  if(thread_current()->exec_sema.value < 0) {
-    if(success) thread_current()->exec_sema.value += 1;
-    sema_up(&thread_current()->exec_sema);
-  }
-  #endif
-
   if (!success) 
     thread_exit ();
-
+  else
+    thread_current()->exec_success = true;
+  
+  
+  #ifdef USERPROG
+    sema_up(&thread_current()->exec_sema);
+  #endif
   char *token;
   int argc;
   char** argv, **tmp;
@@ -192,16 +192,20 @@ process_wait (tid_t child_tid UNUSED)
   #ifdef USERPROG
     struct list_elem *e;
     struct thread *child;
+    int result;
     if(list_empty(&t->children)) return -1;
     for(e = list_front(&t->children);e != list_end(&t->children); e = list_next(e)) {
       child = list_entry(e, struct thread, child_elem);
       if(child->tid == child_tid) break;
     }
-    if(child == NULL)
+    if(e == list_end(&t->children))
       return -1;
     sema_down(&child->wait_sema);
+    result = child->exit_status;
     // list_remove(e);
-    return t->child_exit_status;
+    list_remove(&child->child_elem);
+    palloc_free_page(child);
+    return result;
   #endif
   return -1;
 }
@@ -584,13 +588,3 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-tid_t process_exec_wait(const char *file_name)
-{
-  sema_init(&exec_sema, 0);
-
-  tid_t tid = process_execute(file_name);
-  sema_down(&exec_sema);
-
-  if(exec_sema.value > 0) return tid;
-  else return -1;
-}
