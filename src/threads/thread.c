@@ -292,7 +292,8 @@ thread_exit (void)
 
 #ifdef USERPROG
   process_exit ();
-  sema_up(&thread_current()->wait_sema);
+  thread_current()->parent->child_exit_status = thread_current()->exit_status;
+  list_remove(&thread_current()->child_elem);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,
@@ -481,6 +482,7 @@ init_thread (struct thread *t, const char *name, int priority)
     list_push_back(&running_thread()->children, &t->child_elem);
     t->parent = running_thread();
     sema_init(&t->wait_sema, 0);
+    sema_init(&t->exec_sema, 0);
     // t->fd = palloc_get_page(PAL_ZERO);
     // t->fd[0] = 
   #endif
@@ -600,3 +602,17 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+bool
+check_executable (char* filename)
+{
+  struct list_elem *e;
+  for(e = list_front(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    struct thread *child = list_entry(e, struct thread, allelem);
+    if(strcmp(child->name, filename) == 0){
+      break;
+    }
+  }
+  if(e == list_end(&all_list)) return false;
+  else return true;
+}

@@ -104,7 +104,8 @@ struct thread
     struct list children;
     struct list_elem child_elem;
     struct semaphore wait_sema;
-
+    struct semaphore exec_sema;
+    int child_exit_status;
 #endif
     struct file **fd;
 
@@ -147,5 +148,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool check_executable(char*);
 
 #endif /* threads/thread.h */

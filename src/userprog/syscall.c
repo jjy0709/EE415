@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <stdbool.h>
+#include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -142,7 +143,8 @@ syscall_handler (struct intr_frame *f UNUSED)
         if(f == NULL) {
           i = -1;
         } else {
-          if(strcmp)
+          bool check = check_executable(file);
+          if (check) file_deny_write(f);
           thread_current()->fd[i]=f;
         }
         break;
