@@ -50,8 +50,8 @@ syscall_handler (struct intr_frame *f UNUSED)
     int status = *(int *)(f->esp+4);
     printf("%s: exit(%d)\n", thread_current()->name, status);
     thread_current()->exit_status = status;
-    thread_exit();
     f->eax = status;
+    thread_exit();
     break;
   }
   // EXEC
@@ -60,8 +60,30 @@ syscall_handler (struct intr_frame *f UNUSED)
   /* Synchronization */
     check_address(f->esp+4);
     const char *cmd = *(char **)(f->esp+4);
-    int exec_result = process_execute(cmd);
-    f->eax = exec_result;
+
+    tid_t exec_result = process_execute(cmd);
+
+    #ifdef USERPROG
+    struct list_elem *e;
+    struct thread *child;
+    for(e = list_front(&thread_current()->children); e != list_end(&thread_current()->children); e = list_next(e)) {
+      child = list_entry(e, struct thread, child_elem);
+      if(child->tid == exec_result) break;
+    }
+    if(e == list_back(&thread_current()->children)) {
+      f->eax = -1;
+      return;
+    }
+    sema_down(&child->exec_sema);
+    if(child->exec_sema.value > 0) {
+      f->eax = exec_result;
+    } else {
+      f->eax = -1;
+    }
+    return;
+
+    #endif
+    
     break;
   }
   // WAIT
@@ -69,7 +91,8 @@ syscall_handler (struct intr_frame *f UNUSED)
   {
     check_address(f->esp+4);
     pid_t pid = *(int *)(f->esp+4);
-    process_wait(pid);
+    int exit_status = process_wait(pid);
+    f->eax = exit_status;
     break;
   }
   // CREATE
@@ -119,6 +142,7 @@ syscall_handler (struct intr_frame *f UNUSED)
         if(f == NULL) {
           i = -1;
         } else {
+          if(strcmp)
           thread_current()->fd[i]=f;
         }
         break;

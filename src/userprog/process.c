@@ -134,6 +134,14 @@ start_process (void *file_name_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
+
+  #ifdef USERPROG
+  if(thread_current()->exec_sema.value < 0) {
+    if(success) thread_current()->exec_sema.value += 1;
+    sema_up(&thread_current()->exec_sema);
+  }
+  #endif
+
   if (!success) 
     thread_exit ();
 
@@ -184,6 +192,7 @@ process_wait (tid_t child_tid UNUSED)
   #ifdef USERPROG
     struct list_elem *e;
     struct thread *child;
+    if(list_empty(&t->children)) return -1;
     for(e = list_front(&t->children);e != list_end(&t->children); e = list_next(e)) {
       child = list_entry(e, struct thread, child_elem);
       if(child->tid == child_tid) break;
@@ -191,8 +200,8 @@ process_wait (tid_t child_tid UNUSED)
     if(child == NULL)
       return -1;
     sema_down(&child->wait_sema);
-    return child->exit_status;
-    // list_remove(&child->child_elem);
+    // list_remove(e);
+    return t->child_exit_status;
   #endif
   return -1;
 }
@@ -220,6 +229,11 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  #ifdef USERPROG
+  // process_exit ();
+  sema_up(&cur->wait_sema);
+  // list_remove(&thread_current()->child_elem);
+  #endif
 }
 
 /* Sets up the CPU for running user code in the current
@@ -568,4 +582,15 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+tid_t process_exec_wait(const char *file_name)
+{
+  sema_init(&exec_sema, 0);
+
+  tid_t tid = process_execute(file_name);
+  sema_down(&exec_sema);
+
+  if(exec_sema.value > 0) return tid;
+  else return -1;
 }
