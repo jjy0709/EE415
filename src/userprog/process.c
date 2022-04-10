@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -53,11 +54,9 @@ process_execute (const char *file_name)
 
 void *
 argument_stack(int argc, char* argv[], void *stackpointer) {
-  char **_argv, **tmp;
   int i, str_len;
   char *real[argc];
 
-  // tmp = (_argv = palloc_get_page (0));
 	/* Copy argv to stack. */
 	for (i = argc - 1; i >= 0; i--) {
 		str_len = strlen (argv[i]) + 1;
@@ -76,7 +75,6 @@ argument_stack(int argc, char* argv[], void *stackpointer) {
 	*((char *)stackpointer) = NULL;
 
 	/* Push argv pointers to user stack. */
-	tmp = _argv;
 	for (i = argc-1; i >= 0; i--) {
 		stackpointer -= 4;
     *(uint32_t*) stackpointer = (uint32_t)real[i];
@@ -90,24 +88,7 @@ argument_stack(int argc, char* argv[], void *stackpointer) {
 
 	/* Push return address(NULL). */
 	stackpointer -= 4;
-	// *((char *)stackpointer) = NULL;
-
-	// palloc_free_page (_argv);
-
-  // for(int i = argc-1; i > -1; i--) {
-  //   *stackpointer++= *argv[i];
-  // }
-  // while((int)stackpointer % 4 != 0) {
-  //   stackpointer++;
-  // }
-  // for(int j = argc; j > -1; j--) {
-  //   *stackpointer = argv[j];
-  //   stackpointer += 4;
-  // }
-  // *stackpointer = argv;
-  // stackpointer += 4;
-  // *stackpointer = argc;
-  // stackpointer += 4;
+	
   return stackpointer;
 }
 
@@ -134,7 +115,7 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (file_name_);
 
   if (!success) 
     thread_exit ();
@@ -203,7 +184,7 @@ process_wait (tid_t child_tid UNUSED)
     sema_down(&child->wait_sema);
     result = child->exit_status;
     // list_remove(e);
-    list_remove(&child->child_elem);
+    list_remove(e);
     palloc_free_page(child);
     return result;
   #endif
@@ -235,8 +216,11 @@ process_exit (void)
     }
   #ifdef USERPROG
   // process_exit ();
-  sema_up(&cur->wait_sema);
+  for (int i=2;i<128;i++) {
+    if(thread_current()->fd[i] == NULL) continue;
+  }
   // list_remove(&thread_current()->child_elem);
+  palloc_free_page(cur->fd);
   #endif
 }
 
@@ -346,13 +330,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  // lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-
+  // file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -437,6 +422,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  // lock_release(&file_lock);
   return success;
 }
 
@@ -512,6 +498,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
+  int i = 0;
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -524,6 +511,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL)
         return false;
+      else
+        i++;
 
       /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
@@ -545,6 +534,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
+  // printf("total user page: %d\n", i);
   return true;
 }
 

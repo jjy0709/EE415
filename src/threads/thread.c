@@ -199,6 +199,10 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   t->fd = palloc_get_page(PAL_ZERO);
+  if( t->fd == NULL) {
+    palloc_free_page(t);
+    return TID_ERROR;
+  }
   #ifdef USERPROG
     // list_init(&t->children);
     list_push_back(&thread_current()->children, &t->child_elem);
@@ -294,6 +298,7 @@ thread_exit (void)
   process_exit ();
   // thread_current()->parent = NULL;
   sema_up(&thread_current()->exec_sema);
+  sema_up(&thread_current()->wait_sema);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,

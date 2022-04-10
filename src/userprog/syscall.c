@@ -9,13 +9,17 @@
 #include "threads/vaddr.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "devices/input.h"
 
 static void syscall_handler (struct intr_frame *);
+
+struct lock file_lock;
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_lock);
 }
 
 void
@@ -108,7 +112,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_current() -> exit_status = -1;
       thread_exit();
     }
+    lock_acquire(&file_lock);
     bool res= filesys_create(fname, size);
+    lock_release(&file_lock);
     f->eax = res;
     break;
   }
@@ -122,7 +128,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_current() -> exit_status = -1;
       thread_exit();
     }
+    lock_acquire(&file_lock);
     bool res = filesys_remove(fname); 
+    lock_release(&file_lock);
     f->eax = res;
     break;
   }
@@ -139,7 +147,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     int i;
     for (i =2; i<=128; i++){
       if (thread_current()->fd[i]==NULL) {
+        lock_acquire(&file_lock);
         struct file * f = filesys_open(file);
+        lock_release(&file_lock);
         if(f == NULL) {
           i = -1;
         } else {
@@ -158,8 +168,10 @@ syscall_handler (struct intr_frame *f UNUSED)
   {
     check_address(f->esp+4);
     int num = *(int *)(f->esp+4);
-    struct file *a = thread_current()->fd[num]; 
+    struct file *a = thread_current()->fd[num];
+    lock_acquire(&file_lock);
     int res = (int)file_length(a);
+    lock_release(&file_lock);
     f->eax = res;
     break;
   }
@@ -182,7 +194,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     else{
       struct file *filename = thread_current()->fd[num];
+      lock_acquire(&file_lock);
       off_t res = file_read(filename, *(void **)buffer, (off_t)size);
+      lock_release(&file_lock);
       f->eax = res;
     }
     break;
@@ -197,15 +211,23 @@ syscall_handler (struct intr_frame *f UNUSED)
     void *buffer = f->esp+8; 
     unsigned size = *(unsigned *)(f->esp+12);
     
-    if(num == 1) {
+    if(num < 0 || num > 128) {
+      f->eax = -1;
+    }
+    else if(num == 1) {
       putbuf(*(const char **)buffer, (size_t) size);
       f->eax = size;
     }
-
     else{
       struct file *filename = thread_current()->fd[num];
+      if(filename == NULL) {
+        f->eax = -1;
+      } else {
+        lock_acquire(&file_lock);
         off_t res = file_write(filename, *(const void **)buffer, (off_t)size);
+        lock_release(&file_lock);
         f->eax = res;
+      }
     }
     break;
   }
@@ -217,7 +239,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     int num = *(int *)(f->esp+4);
     off_t off = *(off_t *)(f->esp+8);
     struct file *filename = thread_current()->fd[num];
+    lock_acquire(&file_lock);
     file_seek(filename, off);
+    lock_release(&file_lock);
     break;
   }
   // SYS_TELL
@@ -226,7 +250,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+4);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
+    lock_acquire(&file_lock);
     off_t res = file_tell(filename);
+    lock_release(&file_lock);
     f->eax = res;
     break;
   }
@@ -235,7 +261,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+4);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
+    lock_acquire(&file_lock);
     file_close(filename);
+    lock_release(&file_lock);
     thread_current()->fd[num]=NULL;
     break;
   }
