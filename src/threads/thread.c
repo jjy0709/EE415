@@ -204,6 +204,7 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
   }
   #ifdef USERPROG
+    // t->handler = palloc_get_page(PAL_ZERO);
     // list_init(&t->children);
     list_push_back(&thread_current()->children, &t->child_elem);
     t->parent = thread_current();
@@ -620,4 +621,19 @@ check_executable (char* filename)
   }
   if(e == list_end(&all_list)) return false;
   else return true;
+}
+
+struct thread *
+thread_by_pid (tid_t tid)
+{
+  struct list_elem *e;
+  struct thread *child;
+  for(e = list_front(&all_list); e != list_end(&all_list); e = list_next(e)) {
+    child = list_entry(e, struct thread, allelem);
+    if(child->tid == tid){
+      break;
+    }
+  }
+  if(e == list_end(&all_list)) return NULL;
+  else return child;
 }

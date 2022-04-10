@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "threads/synch.h"
+#include "userprog/syscall.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -105,8 +106,9 @@ struct thread
     struct list_elem child_elem;
     struct semaphore wait_sema;
     struct semaphore exec_sema;
-    int child_exit_status;
     bool exec_success;
+
+    struct signal_handler handler[64];
 #endif
     struct file **fd;
 
@@ -151,5 +153,6 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 bool check_executable(char*);
+struct thread *thread_by_pid (tid_t tid);
 
 #endif /* threads/thread.h */

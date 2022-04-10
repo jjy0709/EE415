@@ -277,13 +277,27 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+8);
     int signum = *(int *)(f->esp+4);
     void(*handler)() = *(void **)(f->esp+8);
-    // thread_current()->
+    #ifdef USERPROG
+    thread_current()->handler[signum].handle_func = handler;
+    thread_current()->handler[signum].sig_num = signum;
+    #endif
     break;
   }
 
   case SYS_SENDSIG:
+  {
+    check_address(f->esp+4);
+    check_address(f->esp+8);
+    pid_t pid = *(pid_t*)(f->esp+4);
+    int signum = *(int*)(f->esp+8);
+    struct thread *t = thread_by_pid(pid);
+    #ifdef USERPROG
+    if(t != NULL && t->handler[signum].sig_num != NULL) {
+      printf("Signum: %d, Action: %p\n", signum, t->handler[signum].handle_func);
+    }
+    #endif
     break;
-
+  }
   case SYS_YIELD:
   {
     thread_yield();

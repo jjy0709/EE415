@@ -224,6 +224,7 @@ process_exit (void)
   }
   // list_remove(&thread_current()->child_elem);
   palloc_free_page(cur->fd);
+  // palloc_free_page(cur->handler);
   #endif
 }
 
