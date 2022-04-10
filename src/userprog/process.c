@@ -217,7 +217,10 @@ process_exit (void)
   #ifdef USERPROG
   // process_exit ();
   for (int i=2;i<128;i++) {
-    if(thread_current()->fd[i] == NULL) continue;
+    if(cur->fd[i] == NULL) continue;
+    else {
+      file_close(cur->fd[i]);
+    }
   }
   // list_remove(&thread_current()->child_elem);
   palloc_free_page(cur->fd);
@@ -239,7 +242,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -425,7 +428,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   // lock_release(&file_lock);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);

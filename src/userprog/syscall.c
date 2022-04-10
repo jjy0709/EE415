@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "threads/interrupt.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "filesys/file.h"
@@ -65,9 +66,11 @@ syscall_handler (struct intr_frame *f UNUSED)
   /* Synchronization */
     check_address(f->esp+4);
     const char *cmd = *(char **)(f->esp+4);
+    char *fn_copy = palloc_get_page(0);
+    strlcpy(fn_copy, cmd, PGSIZE);
 
-    tid_t exec_result = process_execute(cmd);
-
+    tid_t exec_result = process_execute(fn_copy);
+    palloc_free_page(fn_copy);
     #ifdef USERPROG
     struct list_elem *e;
     struct thread *child;
