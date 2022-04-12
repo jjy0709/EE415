@@ -41,8 +41,8 @@ set up stack for user process.
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
-At first, we tokenized argument by using strtok_r function and put it in
-argv. Then put arguments, addresses and things necessary for stack in stack.
+First, we tokenize arguments by using strtok_r function and put it in
+argv. Then we put arguments, addresses and things necessary for stack.
 To put argv in right order, we used for loop which get int i from argc - 1 to 0.
 By this way we could arrange elements. Also we avoid overflowing the stack page
 by checking stack pointer's address in syscall_handler. 
@@ -51,7 +51,7 @@ by checking stack pointer's address in syscall_handler.
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
-Since strtok cannot be work atomic in multi thread environment,
+Since strtok cannot work atomically in multi thread environment,
 it is not safe to use strtok() for Pintos. Thus, we use strtok_r().
 
 >> A4: In Pintos, the kernel separates commands into a executable name
@@ -61,7 +61,7 @@ it is not safe to use strtok() for Pintos. Thus, we use strtok_r().
 Since kernel don't have to keep commands, it can be simplified. Once kernel
 parsed command, it do not have to parse it again, and also it would be easier
 to validate commands.
-Second,  
+Second, shell doing the parsing and preprocessing reduces danger of kernel hacking.
 
                  SYSTEM CALLS
                  ============
@@ -96,9 +96,10 @@ and then close file.
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
 
-For kernel to read and write to user data, it access user data by accessing
-esp in interrupt frame. By adding 4, we can access arguments.
-???????????
+We use read and write system calls to do this. Read and write system calls get
+file descriptor, pointer to a buffer and size of intended copy size as inputs.
+It searches for file corresponding to file descriptor and do read or write.
+(we used input_getc and putbuf for stdio as instructed.)
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -107,19 +108,31 @@ esp in interrupt frame. By adding 4, we can access arguments.
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+For both cases, least number of inspections would be 1 when pagedir_get_page()
+successfully gets what we need.(For a full page, a page head and for 2 bytes 
+kernel address with more than 2 bytes till the end.)
+For full page, greatest possible number of inspections would be 4096 if
+it's not contiguous. We would have to call pagedir_get_page 4096 times
+to check every address's validity. If it is contiguous, we would need maximum
+2 calls if it is not a page head.
+For two bytes, max number when it's either not contiguous or located in the very
+end of a page, is 2 too. There might be improvements when we do not make each segment
+get each separate pages but just use the already got page so that many segments
+could get into a single page.
 
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
 
-When parent thread call wait system call it calls process wait. By turning
-around parent's children list, we find child thread. If there is no child
-thread that has given tid, process_wait ends. If not, it waits for child
-to exit by sema down. When child thread exits, it do sema up to wake it's
-parent thread.Then parent thread get child process'sexit status by checking 
-exit_status of child. This could be possible sincewe free child thread at
-process wait. Since parent have to check child's exit_status, thread_exit 
-do not free child. Instead, parent thread do it after get exit status of 
+When parent thread calls wait system call it calls process_wait(). By 
+iterating through parent's children list, we find child thread with tid. 
+If there is no child thread that has given tid, process_wait ends. 
+If not, it waits for child to exit by sema down. When child thread exits, 
+it ups the sema to wake it's parent thread. Then parent thread gets 
+child process's exit status by checking exit_status of child. 
+This is possible since we free child thread at process wait. 
+Since parent have to check child's exit_status, thread_exit do not 
+free child. Instead, parent thread do it after getting exit status of 
 child process.
 
 >> B6: Any access to user program memory at a user-specified address
