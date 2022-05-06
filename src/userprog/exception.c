@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -109,6 +110,27 @@ kill (struct intr_frame *f)
     }
 }
 
+bool
+handle_mm_fault(struct vm_entry *vme)
+{
+   // bool success = false;
+   if(vme->VPtype == VM_BIN) {
+      if(load_file(vme->VPN, vme)){
+         vme->is_loaded = true;
+         // success = true;
+      }
+   }
+   else if (vme->VPtype == VM_ANON) {
+      // success = true;
+   }
+   else if (vme->VPtype == VM_FILE) {
+      if(load_file(vme->VPN, vme)) {
+         vme->is_loaded = true;
+      }
+   }
+   return vme->is_loaded;
+}
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -149,21 +171,40 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if(!is_user_vaddr(fault_addr) || user || not_present) {
+  if(!is_user_vaddr(fault_addr)) {
     printf("%s: exit(%d)\n", thread_current()->name, -1);
      thread_current()->exit_status = -1;
      thread_exit();
      return;
   }
 
+  #ifdef VM
+  struct vm_entry *vm_entry = find_vme(&thread_current()->vm, pg_round_down(fault_addr));
+  if(vm_entry == NULL) {
+     printf("%s: exit(%d)\n", thread_current()->name, -1);
+     thread_current()->exit_status = -1;
+     thread_exit();
+     return;
+  }
+
+  if(write && !vm_entry->writable) {
+     printf("%s: exit(%d)\n", thread_current()->name, -1);
+     thread_current()->exit_status = -1;
+     thread_exit();
+     return;
+  }
+
+  if (handle_mm_fault(vm_entry))
+   return;
+  #endif
+
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+//   printf ("Page fault at %p: %s error %s page in %s context.\n",
+//           fault_addr,
+//           not_present ? "not present" : "rights violation",
+//           write ? "writing" : "reading",
+//           user ? "user" : "kernel");
+//   kill (f);
 }
-

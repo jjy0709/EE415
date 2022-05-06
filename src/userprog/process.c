@@ -19,6 +19,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -106,6 +107,10 @@ start_process (void *file_name_)
   char *file_name = strtok_r((char*)file_name_, " ", &save_ptr);
   struct intr_frame if_;
   bool success;
+
+  #ifdef VM
+  vm_init(&thread_current()->vm);
+  #endif
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -197,10 +202,37 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  struct list_elem *elem, *mmap_elem;
+  struct mmap_file *mmap_file;
+  struct vm_entry *vm_entry;
 
+  if(!list_empty(&cur ->mmap_list)){
+    elem = list_front(&cur->mmap_list);
+    while(elem != list_end(&cur->mmap_list)) {
+      mmap_file = list_entry(elem, struct mmap_file, elem);
+      mmap_elem = list_front(&mmap_file->vme_list);
+      while (mmap_elem != list_end(&mmap_file->vme_list))
+      {
+        vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
+        if(vm_entry->is_loaded && pagedir_is_dirty(cur->pagedir, vm_entry->VPN)) {
+          void* buffer = pagedir_get_page(cur->pagedir, vm_entry->VPN);
+          file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
+        }
+        pagedir_clear_page(cur->pagedir, vm_entry->VPN);
+        hash_delete(&cur->vm, &vm_entry->h_elem);
+        mmap_elem = list_next(mmap_elem);
+        free(vm_entry);
+      }
+
+      file_close(mmap_file->file);
+      elem = list_next(elem);
+      free(mmap_file);
+    }
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
+  
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -225,6 +257,9 @@ process_exit (void)
   // list_remove(&thread_current()->child_elem);
   palloc_free_page(cur->fd);
   // palloc_free_page(cur->handler);
+  #endif
+  #ifdef VM
+  vm_destroy(&cur->vm);
   #endif
 }
 
@@ -425,7 +460,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // file_close (file);
   // lock_release(&file_lock);
   return success;
 }
@@ -511,31 +546,47 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
+      // /* Get a page of memory. */
+      // uint8_t *kpage = palloc_get_page (PAL_USER);
+      // if (kpage == NULL)
+      //   return false;
+      // else
+      // i++;
+
+      // /* Load this page. */
+      // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      //   {
+      //     palloc_free_page (kpage);
+      //     return false; 
+      //   }
+      // memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      // /* Add the page to the process's address space. */
+      // if (!install_page (upage, kpage, writable)) 
+      //   {
+      //     palloc_free_page (kpage);
+      //     return false; 
+      //   }
+      #ifdef VM
+      struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
+      
+      vm_entry->VPN = upage;
+      vm_entry->writable = writable;
+      vm_entry->VPtype = VM_BIN; // 맞는지 확인해야함
+      vm_entry->f = file;
+      vm_entry->offset = ofs; // ?????
+      vm_entry->data_amount = page_read_bytes;
+      vm_entry->is_loaded = false;
+
+      if(!insert_vme(&thread_current()->vm, vm_entry)) {
         return false;
-      else
-        i++;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
+      }
+      #endif
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;
       upage += PGSIZE;
     }
   // printf("total user page: %d\n", i);
@@ -554,8 +605,22 @@ setup_stack (void **esp)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
+      if (success) {
         *esp = PHYS_BASE;
+      #ifdef VM
+      struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
+        
+        vm_entry->VPN = ((uint8_t *) PHYS_BASE) - PGSIZE;
+        vm_entry->writable = true;
+        vm_entry->VPtype = VM_ANON;
+        vm_entry->is_loaded = false;
+        // vm_entry->f = ;
+        // vm_entry->offset = ofs; // ?????
+        // vm_entry->data_amount = page_read_bytes;
+
+        insert_vme(&thread_current()->vm, vm_entry);
+      #endif
+      }
       else
         palloc_free_page (kpage);
     }

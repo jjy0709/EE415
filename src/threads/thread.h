@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 
 #include "threads/synch.h"
 #include "userprog/syscall.h"
@@ -101,6 +102,7 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+
     struct thread *parent;
     struct list children;
     struct list_elem child_elem;
@@ -108,7 +110,11 @@ struct thread
     struct semaphore exec_sema;
     bool exec_success;
 
-    struct signal_handler handler[64];
+   //  struct signal_handler handler[64];
+#endif
+#ifdef VM
+    struct hash vm;
+    struct list mmap_list;
 #endif
     struct file **fd;
 

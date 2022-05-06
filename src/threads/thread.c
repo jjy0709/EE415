@@ -492,6 +492,9 @@ init_thread (struct thread *t, const char *name, int priority)
     // t->fd = palloc_get_page(PAL_ZERO);
     // t->fd[0] = 
   #endif
+  #ifdef VM
+    list_init(&t->mmap_list);
+  #endif
   intr_set_level (old_level);
 }
 

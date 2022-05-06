@@ -11,6 +11,8 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "devices/input.h"
+#include "vm/page.h"
+#include "userprog/pagedir.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -26,14 +28,12 @@ syscall_init (void)
 void
 check_address (void * addr)
 {
-  // printf("check_addr\n");
-  // for(int i = 0; i<4; i++){
-    if(!is_user_vaddr(addr) || addr < 0x8048000) {
-      printf("%s: exit(%d)\n", thread_current()->name, -1);
-      thread_current()->exit_status = -1;
-      thread_exit();
-    }
-  // }
+  if(!is_user_vaddr(addr) || addr < 0x8048000) {
+    printf("%s: exit(%d)\n", thread_current()->name, -1);
+    thread_current()->exit_status = -1;
+    thread_exit();
+  }
+  
 }
 
 static void
@@ -270,40 +270,95 @@ syscall_handler (struct intr_frame *f UNUSED)
     thread_current()->fd[num]=NULL;
     break;
   }
-
-  case SYS_SIGACTION:
+  case SYS_MMAP:
   {
     check_address(f->esp+4);
     check_address(f->esp+8);
-    int signum = *(int *)(f->esp+4);
-    void(*handler)() = *(void **)(f->esp+8);
-    #ifdef USERPROG
-    thread_current()->handler[signum].handle_func = handler;
-    thread_current()->handler[signum].sig_num = signum;
-    #endif
-    break;
-  }
+    int fd = *(int*)(f->esp+4);
+    void *addr = *(uint32_t*)(f->esp+8);
 
-  case SYS_SENDSIG:
-  {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
-    pid_t pid = *(pid_t*)(f->esp+4);
-    int signum = *(int*)(f->esp+8);
-    struct thread *t = thread_by_pid(pid);
-    #ifdef USERPROG
-    if(t != NULL && t->handler[signum].sig_num != NULL) {
-      printf("Signum: %d, Action: %p\n", signum, t->handler[signum].handle_func);
+    struct file *file = thread_current()->fd[fd];
+
+    if(pg_ofs(addr) || fd == 0 || fd == 1 || addr == 0 || is_kernel_vaddr(addr) || file == NULL) {
+      f->eax = -1;
+      return -1;
     }
-    #endif
-    break;
-  }
-  case SYS_YIELD:
-  {
-    thread_yield();
-    break;
-  }
 
+    off_t length = file_length(file);
+    off_t ofs = 0;
+    
+    if(length == 0) {
+      f->eax = -1;
+      return -1;
+    }
+
+    void* start = addr;
+    while(start < addr + length) {
+      if(find_vme(&thread_current()->vm, start) != NULL) {
+        f->eax = -1;
+        return -1;
+      }
+      start += PGSIZE;
+    }
+
+    struct file *f2 = file_reopen(file);
+    struct mmap_file *mmap_file = malloc(sizeof(struct mmap_file));
+    mmap_file->file = f2;
+    mmap_file->mapid = list_size(&thread_current()->mmap_list);
+    list_push_back(&thread_current()->mmap_list, &mmap_file->elem);
+    list_init(&mmap_file->vme_list);
+
+    while (length > 0)
+    {
+      size_t read_bytes = length < PGSIZE ? length : PGSIZE;
+      size_t zero_bytes = PGSIZE - read_bytes;
+
+      struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
+      vm_entry->VPN = addr;
+      vm_entry->writable = true;
+      vm_entry->VPtype = VM_FILE;
+      vm_entry->f = f2;
+      vm_entry->offset = ofs;
+      vm_entry->data_amount = read_bytes;
+      vm_entry->is_loaded = false;
+    
+      if(!insert_vme(&thread_current()->vm, vm_entry)) {
+        return false;
+      }
+      list_push_back(&mmap_file->vme_list, &vm_entry->mmap_elem);
+
+      length -= read_bytes;
+      ofs += read_bytes;
+      addr += PGSIZE;
+    }
+
+    f->eax = mmap_file->mapid;
+    return;
+    break;
+  }
+  case SYS_MUNMAP:
+  {
+    check_address(f->esp+4);
+    int mapid = *(int *)(f->esp+4);
+    struct list_elem *elem;
+    struct mmap_file *mmap_f;
+    
+    if(list_empty(&thread_current()->mmap_list))
+      return -1;
+    
+    for(elem = list_front(&thread_current()->mmap_list);elem != list_end(&thread_current()->mmap_list);elem = list_next(elem)){
+      mmap_f = list_entry(elem, struct mmap_file, elem);
+      if(mmap_f->mapid == mapid) 
+        do_munmap(mmap_f);
+        break;
+    }
+
+    if(elem == list_end(&thread_current()->mmap_list)) {
+     return -1;
+    }
+    
+    break;
+  }
   default:
   break;
   }
@@ -325,3 +380,26 @@ syscall_handler (struct intr_frame *f UNUSED)
 //     SYS_SIGACTION,              /* Register an signal handler */
 //     SYS_SENDSIG,                /* Send a signal */
 //     SYS_YIELD, 
+
+void do_munmap(struct mmap_file *mmap_file) {
+  struct list_elem *mmap_elem;
+  if(!list_empty(&mmap_file->vme_list))
+  {  
+    mmap_elem = list_front(&mmap_file->vme_list);
+    while (mmap_elem != list_end(&mmap_file->vme_list))
+      {
+        struct vm_entry *vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
+        if(vm_entry->is_loaded && pagedir_is_dirty(thread_current()->pagedir, vm_entry->VPN)) {
+          void* buffer = pagedir_get_page(thread_current()->pagedir, vm_entry->VPN);
+          file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
+        }
+        pagedir_clear_page(thread_current()->pagedir, vm_entry->VPN);
+        hash_delete(&thread_current()->vm, &vm_entry->h_elem);
+        mmap_elem = list_next(mmap_elem);
+        free(vm_entry);
+      }
+  }
+  list_remove(&mmap_file->elem);
+  file_close(mmap_file->file);
+  free(mmap_file);
+}
