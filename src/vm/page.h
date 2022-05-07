@@ -1,5 +1,7 @@
 #include "filesys/off_t.h"
 #include <hash.h>
+#include <list.h>
+#include "threads/palloc.h"
 
 enum VP_type {
     VM_BIN = 0,
@@ -31,6 +33,17 @@ struct mmap_file {
     struct list vme_list;
 };
 
+struct page {
+    void *kaddr;  // physical addr
+    struct vm_entry *vme;
+    struct thread *thread;
+    struct list_elem lru;
+};
+
+extern struct list lru_list;
+extern struct lock lru_list_lock;
+extern struct list_elem *curr_elem;
+
 void vm_init(struct hash*);
 void vm_destroy (struct hash*);
 
@@ -43,3 +56,9 @@ static bool vm_less_func(const struct hash_elem *, const struct hash_elem *, voi
 static void vm_destroy_func(struct hash_elem *, void *);
 
 bool load_file (void *, struct vm_entry *);
+
+void lru_list_init(void);
+void add_page_to_lru_list(struct page *);
+void del_page_from_lru_list(struct page *);
+struct page* alloc_page(enum palloc_flags);
+void free_page(void *);

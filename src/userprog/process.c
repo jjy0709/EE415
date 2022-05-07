@@ -226,6 +226,7 @@ process_exit (void)
 
       file_close(mmap_file->file);
       elem = list_next(elem);
+      list_remove(&mmap_file->elem);
       free(mmap_file);
     }
   }
@@ -259,7 +260,7 @@ process_exit (void)
   // palloc_free_page(cur->handler);
   #endif
   #ifdef VM
-  vm_destroy(&cur->vm);
+    vm_destroy(&cur->vm);
   #endif
 }
 
@@ -577,6 +578,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       vm_entry->offset = ofs; // ?????
       vm_entry->data_amount = page_read_bytes;
       vm_entry->is_loaded = false;
+      vm_entry->swap_slot = -1;
 
       if(!insert_vme(&thread_current()->vm, vm_entry)) {
         return false;
@@ -598,13 +600,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
-  uint8_t *kpage;
+  // uint8_t *kpage;
+  struct page *kpage;
   bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = alloc_page(PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage->kaddr, true);
       if (success) {
         *esp = PHYS_BASE;
       #ifdef VM
@@ -613,16 +616,18 @@ setup_stack (void **esp)
         vm_entry->VPN = ((uint8_t *) PHYS_BASE) - PGSIZE;
         vm_entry->writable = true;
         vm_entry->VPtype = VM_ANON;
-        vm_entry->is_loaded = false;
+        vm_entry->is_loaded = true;
+        vm_entry->swap_slot = -1;
         // vm_entry->f = ;
         // vm_entry->offset = ofs; // ?????
         // vm_entry->data_amount = page_read_bytes;
+        kpage->vme = vm_entry;
 
         insert_vme(&thread_current()->vm, vm_entry);
       #endif
       }
       else
-        palloc_free_page (kpage);
+        free_page(kpage->kaddr);
     }
   return success;
 }

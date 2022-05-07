@@ -6,6 +6,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -110,6 +111,15 @@ kill (struct intr_frame *f)
     }
 }
 
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
 bool
 handle_mm_fault(struct vm_entry *vme)
 {
@@ -121,8 +131,17 @@ handle_mm_fault(struct vm_entry *vme)
       }
    }
    else if (vme->VPtype == VM_ANON) {
-      // success = true;
-   }
+      // if(vme->swap_slot > -1) {
+         struct page *page = alloc_page(PAL_USER);
+         page->vme = vme;
+         swap_in(vme->swap_slot, page->kaddr);
+         if(!install_page(vme->VPN, page->kaddr, vme->writable)) {
+            free_page(page);
+            return false;
+         }
+         vme->is_loaded = true;
+      }
+   // }
    else if (vme->VPtype == VM_FILE) {
       if(load_file(vme->VPN, vme)) {
          vme->is_loaded = true;

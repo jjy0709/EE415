@@ -321,6 +321,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       vm_entry->offset = ofs;
       vm_entry->data_amount = read_bytes;
       vm_entry->is_loaded = false;
+      vm_entry->swap_slot = -1;
     
       if(!insert_vme(&thread_current()->vm, vm_entry)) {
         return false;
@@ -348,14 +349,15 @@ syscall_handler (struct intr_frame *f UNUSED)
     
     for(elem = list_front(&thread_current()->mmap_list);elem != list_end(&thread_current()->mmap_list);elem = list_next(elem)){
       mmap_f = list_entry(elem, struct mmap_file, elem);
-      if(mmap_f->mapid == mapid) 
-        do_munmap(mmap_f);
+      if(mmap_f->mapid == mapid)
         break;
     }
 
     if(elem == list_end(&thread_current()->mmap_list)) {
      return -1;
     }
+    
+    do_munmap(mmap_f);
     
     break;
   }
@@ -383,22 +385,26 @@ syscall_handler (struct intr_frame *f UNUSED)
 
 void do_munmap(struct mmap_file *mmap_file) {
   struct list_elem *mmap_elem;
-  if(!list_empty(&mmap_file->vme_list))
-  {  
+  // if(!list_empty(&mmap_file->vme_list))
+  // {  
     mmap_elem = list_front(&mmap_file->vme_list);
     while (mmap_elem != list_end(&mmap_file->vme_list))
       {
         struct vm_entry *vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
         if(vm_entry->is_loaded && pagedir_is_dirty(thread_current()->pagedir, vm_entry->VPN)) {
           void* buffer = pagedir_get_page(thread_current()->pagedir, vm_entry->VPN);
+          lock_acquire(&file_lock);
           file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
+          lock_release(&file_lock);
+          free_page(buffer);
         }
         pagedir_clear_page(thread_current()->pagedir, vm_entry->VPN);
         hash_delete(&thread_current()->vm, &vm_entry->h_elem);
         mmap_elem = list_next(mmap_elem);
+        list_remove(&vm_entry->mmap_elem);
         free(vm_entry);
       }
-  }
+  // }
   list_remove(&mmap_file->elem);
   file_close(mmap_file->file);
   free(mmap_file);
