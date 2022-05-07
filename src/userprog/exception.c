@@ -5,6 +5,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "userprog/process.h"
 #include "vm/page.h"
 #include "vm/swap.h"
 
@@ -150,6 +152,11 @@ handle_mm_fault(struct vm_entry *vme)
    return vme->is_loaded;
 }
 
+bool
+verify_stack(void *addr, void* esp)
+{
+   return((esp-addr <= 0x100) && (esp-addr > 0) && (addr > (PHYS_BASE - 0x8000000)) && (addr <= PHYS_BASE));
+}
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -199,6 +206,13 @@ page_fault (struct intr_frame *f)
 
   #ifdef VM
   struct vm_entry *vm_entry = find_vme(&thread_current()->vm, pg_round_down(fault_addr));
+  if(vm_entry == NULL && verify_stack(fault_addr, f->esp)) {
+     if(expand_stack(fault_addr)) {
+      //   f->esp = fault_addr;
+      // thread_current()->stack -= PGSIZE;
+     }
+     return;
+  }
   if(vm_entry == NULL) {
      printf("%s: exit(%d)\n", thread_current()->name, -1);
      thread_current()->exit_status = -1;
@@ -216,6 +230,11 @@ page_fault (struct intr_frame *f)
   if (handle_mm_fault(vm_entry))
    return;
   #endif
+
+  printf("%s: exit(%d)\n", thread_current()->name, -1);
+   thread_current()->exit_status = -1;
+   thread_exit();
+   return;
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

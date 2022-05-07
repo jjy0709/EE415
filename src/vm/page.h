@@ -24,6 +24,8 @@ struct vm_entry {
     size_t data_amount;
 
     size_t swap_slot;
+
+    bool pinned;
 };
 
 struct mmap_file {
@@ -43,6 +45,8 @@ struct page {
 extern struct list lru_list;
 extern struct lock lru_list_lock;
 extern struct list_elem *curr_elem;
+
+extern struct lock eviction_lock;
 
 void vm_init(struct hash*);
 void vm_destroy (struct hash*);

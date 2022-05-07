@@ -1,8 +1,10 @@
 #include "vm/page.h"
 #include <hash.h>
+#include <string.h>
 #include "filesys/file.h"
 #include "threads/palloc.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "vm/swap.h"
@@ -11,11 +13,13 @@ struct list lru_list;
 struct lock lru_list_lock;
 struct list_elem *curr_elem;
 
+struct lock eviction_lock;
+
 void
 vm_init (struct hash* vm)
 {
     hash_init(vm, vm_hash_func, vm_less_func, NULL);
-
+    lock_init(&eviction_lock);
 }
 
 void
@@ -89,8 +93,8 @@ install_page (void *upage, void *kpage, bool writable)
 bool
 load_file (void *kaddr, struct vm_entry *vme)
 {
-
-    file_seek (vme->f, vme->offset);
+    // file_reopen(vme->f);
+    // file_seek (vme->f, vme->offset);
 
     size_t page_read_bytes = vme->data_amount < PGSIZE ? vme->data_amount : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
@@ -102,12 +106,15 @@ load_file (void *kaddr, struct vm_entry *vme)
     }
     
     kpage->vme = vme;
-    if (file_read(vme->f, kpage->kaddr, page_read_bytes) != (int) page_read_bytes)
+    // file_lock_acquire();
+    if (file_read_at(vme->f, kpage->kaddr, page_read_bytes, vme->offset) != (int) page_read_bytes)
     {
+        // file_lock_release();
         // palloc_free_page(kpage);
         free_page(kpage->kaddr);
         return false;
     }
+    // file_lock_release();
     memset (kpage->kaddr + page_read_bytes, 0, page_zero_bytes);
 
     if(!install_page(vme->VPN, kpage->kaddr, vme->writable))
@@ -166,21 +173,21 @@ __free_page(struct page *page)
     } else if(vme->VPtype == VM_FILE) {
         if(pagedir_is_dirty(page->thread->pagedir, vme->VPN)) {
             void* buffer = pagedir_get_page(page->thread->pagedir, vme->VPN);
-            lock_acquire(&file_lock);
+            file_lock_acquire();
             file_write_at(vme->f, buffer, PGSIZE, vme->offset);
-            lock_release(&file_lock);
+            file_lock_release();
             pagedir_set_dirty(page->thread->pagedir, vme->VPN, 0);
         }
     } else if(vme->VPtype == VM_ANON) {
         vme->swap_slot = swap_out(page->kaddr);
     }
-    del_page_from_lru_list(page);
     vme->is_loaded = false;
     // if(vme->mmap_elem.prev != NULL)
         // list_remove(&vme->mmap_elem);
     // hash_delete(&page->thread->vm, &vme->h_elem);
     pagedir_set_accessed(page->thread->pagedir, vme->VPN, 0);
     pagedir_clear_page(page->thread->pagedir, vme->VPN);
+    del_page_from_lru_list(page);
     
     palloc_free_page(page->kaddr); //????????
     free(page);
@@ -197,6 +204,8 @@ try_to_free_pages(enum palloc_flags flags)
     struct page *p = list_entry(e, struct page, lru);
     if(pagedir_is_accessed(p->thread->pagedir, p->vme->VPN)) {
         pagedir_set_accessed(p->thread->pagedir, p->vme->VPN, 0);
+    } else if (p->vme->pinned){
+        return;
     } else {
         __free_page(p);
     }
@@ -213,6 +222,10 @@ alloc_page(enum palloc_flags flags)
     }
     // printf("page_allocated!\n");
     struct page *p = malloc(sizeof(struct page));
+    while (p == NULL) {
+        try_to_free_pages(flags);
+        p = malloc(sizeof(struct page));
+    }
     p->kaddr = palloc_page;
     p->thread = thread_current();
 

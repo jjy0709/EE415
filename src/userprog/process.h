@@ -11,4 +11,6 @@ void process_exit (void);
 void process_activate (void);
 tid_t process_exec_wait (const char *file_name);
 
+bool expand_stack(void*);
+
 #endif /* userprog/process.h */

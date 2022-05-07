@@ -10,7 +10,9 @@ struct signal_handler {
 
 typedef int pid_t;
 
-extern struct lock file_lock;
+// extern struct lock file_lock;
+void file_lock_acquire(void);
+void file_lock_release(void);
 
 void syscall_init (void);
 

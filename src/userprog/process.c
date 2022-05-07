@@ -214,17 +214,23 @@ process_exit (void)
       while (mmap_elem != list_end(&mmap_file->vme_list))
       {
         vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
-        if(vm_entry->is_loaded && pagedir_is_dirty(cur->pagedir, vm_entry->VPN)) {
+        // if( pagedir_is_dirty(cur->pagedir, vm_entry->VPN)) {
           void* buffer = pagedir_get_page(cur->pagedir, vm_entry->VPN);
-          file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
-        }
+          if(buffer != NULL){
+          // file_lock_acquire();
+          // file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
+          // file_lock_release();
+            free_page(buffer);
+          }
+        // }
         pagedir_clear_page(cur->pagedir, vm_entry->VPN);
         hash_delete(&cur->vm, &vm_entry->h_elem);
         mmap_elem = list_next(mmap_elem);
         free(vm_entry);
       }
-
+      file_lock_acquire();
       file_close(mmap_file->file);
+      file_lock_release();
       elem = list_next(elem);
       list_remove(&mmap_file->elem);
       free(mmap_file);
@@ -252,7 +258,9 @@ process_exit (void)
   for (int i=2;i<128;i++) {
     if(cur->fd[i] == NULL) continue;
     else {
+      file_lock_acquire();
       file_close(cur->fd[i]);
+      file_lock_release();
     }
   }
   // list_remove(&thread_current()->child_elem);
@@ -370,7 +378,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  // lock_acquire(&file_lock);
+  file_lock_acquire();
   file = filesys_open (file_name);
   if (file == NULL) 
     {
@@ -462,7 +470,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   // file_close (file);
-  // lock_release(&file_lock);
+  file_lock_release();
   return success;
 }
 
@@ -605,7 +613,7 @@ setup_stack (void **esp)
   bool success = false;
 
   kpage = alloc_page(PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  if (kpage->kaddr != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage->kaddr, true);
       if (success) {
@@ -650,5 +658,39 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+bool
+expand_stack(void* addr)
+{
+  struct page *kpage;
+  bool success = false;
+
+  kpage = alloc_page(PAL_USER | PAL_ZERO);
+  if (kpage->kaddr != NULL) 
+    {
+      success = install_page (pg_round_down(addr), kpage->kaddr, true);
+      if (success) {
+        // *esp = addr;
+      #ifdef VM
+      struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
+        
+        vm_entry->VPN = pg_round_down(addr);
+        vm_entry->writable = true;
+        vm_entry->VPtype = VM_ANON;
+        vm_entry->is_loaded = true;
+        vm_entry->swap_slot = -1;
+        // vm_entry->f = ;
+        // vm_entry->offset = ofs; // ?????
+        // vm_entry->data_amount = page_read_bytes;
+        kpage->vme = vm_entry;
+
+        insert_vme(&thread_current()->vm, vm_entry);
+      #endif
+      }
+      else
+        free_page(kpage->kaddr);
+    }
+  return success;
 }
 

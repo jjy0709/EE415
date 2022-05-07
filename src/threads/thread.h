@@ -110,7 +110,7 @@ struct thread
     struct semaphore exec_sema;
     bool exec_success;
 
-   //  struct signal_handler handler[64];
+    struct signal_handler handler[64];
 #endif
 #ifdef VM
     struct hash vm;

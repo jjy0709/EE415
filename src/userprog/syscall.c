@@ -19,44 +19,94 @@ static void syscall_handler (struct intr_frame *);
 struct lock file_lock;
 
 void
+file_lock_acquire()
+{
+  lock_acquire(&file_lock);
+}
+
+void
+file_lock_release()
+{
+  lock_release(&file_lock);
+}
+
+void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init(&file_lock);
 }
 
-void
-check_address (void * addr)
+// bool
+// verify_stack(void *addr, void* esp)
+// {
+//    return((esp-addr <= 0x100) && (esp-addr > 0) && (addr > (PHYS_BASE - 0x8000000)) && (addr <= PHYS_BASE));
+// }
+
+struct vm_entry*
+check_address (void * addr, void *esp)
 {
   if(!is_user_vaddr(addr) || addr < 0x8048000) {
     printf("%s: exit(%d)\n", thread_current()->name, -1);
     thread_current()->exit_status = -1;
     thread_exit();
   }
-  
+  struct vm_entry *vme = find_vme(&thread_current()->vm, pg_round_down(addr));
+  if(vme == NULL && verify_stack(addr, esp)) {
+     if(expand_stack(addr)) {
+      vme = find_vme(&thread_current()->vm, pg_round_down(addr));
+     }
+  }
+  if(vme == NULL) {
+    printf("%s: exit(%d)\n", thread_current()->name, -1);
+    thread_current()->exit_status = -1;
+    thread_exit();
+  }
+  vme->pinned = true;
+  return vme;
+}
+
+void
+check_valid_buffer(void*buffer, unsigned size, bool to_write, void* esp)
+{
+  // void *range = buffer;
+  // while(range < buffer + size - 1)
+  // {
+    struct vm_entry *vme = check_address(buffer, esp);
+    if(to_write && !vme->writable) {
+      printf("%s: exit(%d)\n", thread_current()->name, -1);
+      thread_current()->exit_status = -1;
+      thread_exit();
+      vme->pinned = false;
+    }
+    // check_address(*(void**))
+    // range += PGSIZE;
+  // }
 }
 
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   // thread_exit ();
-  check_address(f->esp);
+  struct vm_entry *vme = check_address(f->esp, f->esp);
   switch (*(int *)(f->esp))
   {
   // HALT
   case SYS_HALT:
   {
+    vme->pinned = false;
     shutdown_power_off();
     break;
   }
   // EXIT
   case SYS_EXIT:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     int status = *(int *)(f->esp+4);
     printf("%s: exit(%d)\n", thread_current()->name, status);
     thread_current()->exit_status = status;
     f->eax = status;
+    vme->pinned = false;
     thread_exit();
     break;
   }
@@ -64,7 +114,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   case SYS_EXEC:
   {
   /* Synchronization */
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     const char *cmd = *(char **)(f->esp+4);
     char *fn_copy = palloc_get_page(0);
     strlcpy(fn_copy, cmd, PGSIZE);
@@ -80,7 +130,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     if(e == list_end(&thread_current()->children)) {
       f->eax = -1;
-      return;
+      goto done;
     }
     sema_down(&child->exec_sema);
     if(child->exec_success) {
@@ -88,7 +138,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     } else {
       f->eax = -1;
     }
-    return;
+    goto done;
 
     #endif
     
@@ -97,7 +147,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   // WAIT
   case SYS_WAIT:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     pid_t pid = *(int *)(f->esp+4);
     int exit_status = process_wait(pid);
     f->eax = exit_status;
@@ -106,8 +156,8 @@ syscall_handler (struct intr_frame *f UNUSED)
   // CREATE
   case SYS_CREATE:
   {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
     const char *fname = *(char **)(f->esp+4);
     unsigned size = *(unsigned *)(f->esp+8);
     if(fname == NULL) {
@@ -115,32 +165,32 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_current() -> exit_status = -1;
       thread_exit();
     }
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     bool res= filesys_create(fname, size);
-    lock_release(&file_lock);
+    file_lock_release();
     f->eax = res;
     break;
   }
   // REMOVE
   case SYS_REMOVE:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     const char *fname = *(char **)(f->esp+4);
     if(fname == NULL) {
       printf("%s: exit(%d)\n", thread_current()->name, -1);
       thread_current() -> exit_status = -1;
       thread_exit();
     }
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     bool res = filesys_remove(fname); 
-    lock_release(&file_lock);
+    file_lock_release();
     f->eax = res;
     break;
   }
   // OPEN
   case SYS_OPEN:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     const char *file = *(char **)(f->esp+4);
     if(file == NULL) {
       printf("%s: exit(%d)\n", thread_current()->name, -1);
@@ -150,15 +200,15 @@ syscall_handler (struct intr_frame *f UNUSED)
     int i;
     for (i =2; i<=128; i++){
       if (thread_current()->fd[i]==NULL) {
-        lock_acquire(&file_lock);
-        struct file * f = filesys_open(file);
-        lock_release(&file_lock);
-        if(f == NULL) {
+        file_lock_acquire();
+        struct file * file_open = filesys_open(file);
+        file_lock_release();
+        if(file_open == NULL) {
           i = -1;
         } else {
           bool check = check_executable(file);
-          if (check) file_deny_write(f);
-          thread_current()->fd[i]=f;
+          if (check) file_deny_write(file_open);
+          thread_current()->fd[i]=file_open;
         }
         break;
       }
@@ -169,25 +219,26 @@ syscall_handler (struct intr_frame *f UNUSED)
   // FILESIZE
   case SYS_FILESIZE:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *a = thread_current()->fd[num];
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     int res = (int)file_length(a);
-    lock_release(&file_lock);
+    file_lock_release();
     f->eax = res;
     break;
   }
   // READ
   case SYS_READ:
   {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
-    check_address(f->esp+12);
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
+    check_address(f->esp+12, f->esp);
     int num = *(int *)(f->esp+4);
     void *buffer = f->esp+8;
-    check_address(*(char**)buffer);
+    check_address(*(char**)buffer, f->esp);
     unsigned size = *(unsigned *)(f->esp+12);
+    check_valid_buffer(*(void**)buffer, size, true, f->esp);
     int i;
     if (num == 0){
       for (i=0; i<size; i++){
@@ -197,9 +248,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     else{
       struct file *filename = thread_current()->fd[num];
-      lock_acquire(&file_lock);
+      file_lock_acquire();
       off_t res = file_read(filename, *(void **)buffer, (off_t)size);
-      lock_release(&file_lock);
+      file_lock_release();
       f->eax = res;
     }
     break;
@@ -207,12 +258,14 @@ syscall_handler (struct intr_frame *f UNUSED)
   // WRITE
   case SYS_WRITE:
   {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
-    check_address(f->esp+12);
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
+    check_address(f->esp+12, f->esp);
     int num = *(int *)(f->esp+4); 
-    void *buffer = f->esp+8; 
+    void *buffer = f->esp+8;
+    check_address(*(char**)buffer, f->esp);
     unsigned size = *(unsigned *)(f->esp+12);
+    check_valid_buffer(*(void**)buffer, size, false, f->esp);
     
     if(num < 0 || num > 128) {
       f->eax = -1;
@@ -226,9 +279,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       if(filename == NULL) {
         f->eax = -1;
       } else {
-        lock_acquire(&file_lock);
+        file_lock_acquire();
         off_t res = file_write(filename, *(const void **)buffer, (off_t)size);
-        lock_release(&file_lock);
+        file_lock_release();
         f->eax = res;
       }
     }
@@ -237,43 +290,43 @@ syscall_handler (struct intr_frame *f UNUSED)
   // SYS_SEEK
   case SYS_SEEK:
   {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
     int num = *(int *)(f->esp+4);
     off_t off = *(off_t *)(f->esp+8);
     struct file *filename = thread_current()->fd[num];
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     file_seek(filename, off);
-    lock_release(&file_lock);
+    file_lock_release();
     break;
   }
   // SYS_TELL
   case SYS_TELL:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     off_t res = file_tell(filename);
-    lock_release(&file_lock);
+    file_lock_release();
     f->eax = res;
     break;
   }
   case SYS_CLOSE:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
-    lock_acquire(&file_lock);
+    file_lock_acquire();
     file_close(filename);
-    lock_release(&file_lock);
+    file_lock_release();
     thread_current()->fd[num]=NULL;
     break;
   }
   case SYS_MMAP:
   {
-    check_address(f->esp+4);
-    check_address(f->esp+8);
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
     int fd = *(int*)(f->esp+4);
     void *addr = *(uint32_t*)(f->esp+8);
 
@@ -281,7 +334,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     if(pg_ofs(addr) || fd == 0 || fd == 1 || addr == 0 || is_kernel_vaddr(addr) || file == NULL) {
       f->eax = -1;
-      return -1;
+      goto done;
     }
 
     off_t length = file_length(file);
@@ -289,19 +342,21 @@ syscall_handler (struct intr_frame *f UNUSED)
     
     if(length == 0) {
       f->eax = -1;
-      return -1;
+      goto done;
     }
 
     void* start = addr;
     while(start < addr + length) {
       if(find_vme(&thread_current()->vm, start) != NULL) {
         f->eax = -1;
-        return -1;
+        goto done;
       }
       start += PGSIZE;
     }
 
+    file_lock_acquire();
     struct file *f2 = file_reopen(file);
+    file_lock_release();
     struct mmap_file *mmap_file = malloc(sizeof(struct mmap_file));
     mmap_file->file = f2;
     mmap_file->mapid = list_size(&thread_current()->mmap_list);
@@ -324,7 +379,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       vm_entry->swap_slot = -1;
     
       if(!insert_vme(&thread_current()->vm, vm_entry)) {
-        return false;
+        goto done;
       }
       list_push_back(&mmap_file->vme_list, &vm_entry->mmap_elem);
 
@@ -334,18 +389,18 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
 
     f->eax = mmap_file->mapid;
-    return;
+    goto done;
     break;
   }
   case SYS_MUNMAP:
   {
-    check_address(f->esp+4);
+    check_address(f->esp+4, f->esp);
     int mapid = *(int *)(f->esp+4);
     struct list_elem *elem;
     struct mmap_file *mmap_f;
     
     if(list_empty(&thread_current()->mmap_list))
-      return -1;
+      goto done;
     
     for(elem = list_front(&thread_current()->mmap_list);elem != list_end(&thread_current()->mmap_list);elem = list_next(elem)){
       mmap_f = list_entry(elem, struct mmap_file, elem);
@@ -354,7 +409,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
 
     if(elem == list_end(&thread_current()->mmap_list)) {
-     return -1;
+     goto done;
     }
     
     do_munmap(mmap_f);
@@ -364,6 +419,8 @@ syscall_handler (struct intr_frame *f UNUSED)
   default:
   break;
   }
+  done:
+    vme->pinned = false;
   // thread_exit ();
 }
 
@@ -393,9 +450,9 @@ void do_munmap(struct mmap_file *mmap_file) {
         struct vm_entry *vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
         if(vm_entry->is_loaded && pagedir_is_dirty(thread_current()->pagedir, vm_entry->VPN)) {
           void* buffer = pagedir_get_page(thread_current()->pagedir, vm_entry->VPN);
-          lock_acquire(&file_lock);
+          file_lock_acquire();
           file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
-          lock_release(&file_lock);
+          file_lock_release();
           free_page(buffer);
         }
         pagedir_clear_page(thread_current()->pagedir, vm_entry->VPN);
@@ -406,6 +463,8 @@ void do_munmap(struct mmap_file *mmap_file) {
       }
   // }
   list_remove(&mmap_file->elem);
+  file_lock_acquire();
   file_close(mmap_file->file);
+  file_lock_release();
   free(mmap_file);
 }
