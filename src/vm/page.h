@@ -64,5 +64,7 @@ bool load_file (void *, struct vm_entry *);
 void lru_list_init(void);
 void add_page_to_lru_list(struct page *);
 void del_page_from_lru_list(struct page *);
+
+void try_to_free_pages(enum palloc_flags);
 struct page* alloc_page(enum palloc_flags);
 void free_page(void *);

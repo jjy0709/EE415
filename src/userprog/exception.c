@@ -137,6 +137,7 @@ handle_mm_fault(struct vm_entry *vme)
          struct page *page = alloc_page(PAL_USER);
          page->vme = vme;
          swap_in(vme->swap_slot, page->kaddr);
+         vme->swap_slot = -1;
          if(!install_page(vme->VPN, page->kaddr, vme->writable)) {
             free_page(page);
             return false;
@@ -155,7 +156,7 @@ handle_mm_fault(struct vm_entry *vme)
 bool
 verify_stack(void *addr, void* esp)
 {
-   return((esp-addr <= 0x100) && (esp-addr > 0) && (addr > (PHYS_BASE - 0x8000000)) && (addr <= PHYS_BASE));
+   return((esp-32 <= addr) && (addr > (PHYS_BASE - 0x8000000)) && (addr <= PHYS_BASE));
 }
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
@@ -206,10 +207,10 @@ page_fault (struct intr_frame *f)
 
   #ifdef VM
   struct vm_entry *vm_entry = find_vme(&thread_current()->vm, pg_round_down(fault_addr));
-  if(vm_entry == NULL && verify_stack(fault_addr, f->esp)) {
+  struct thread *t = thread_current();
+  void * esp = user? f->esp: t->stack;
+  if(vm_entry == NULL && verify_stack(fault_addr, esp)) {
      if(expand_stack(fault_addr)) {
-      //   f->esp = fault_addr;
-      // thread_current()->stack -= PGSIZE;
      }
      return;
   }

@@ -21,13 +21,15 @@ struct lock file_lock;
 void
 file_lock_acquire()
 {
-  lock_acquire(&file_lock);
+  if(file_lock.holder != thread_current())
+    lock_acquire(&file_lock);
 }
 
 void
 file_lock_release()
 {
-  lock_release(&file_lock);
+  if(file_lock.holder == thread_current())
+    lock_release(&file_lock);
 }
 
 void
@@ -52,10 +54,10 @@ check_address (void * addr, void *esp)
     thread_exit();
   }
   struct vm_entry *vme = find_vme(&thread_current()->vm, pg_round_down(addr));
-  if(vme == NULL && verify_stack(addr, esp)) {
-     if(expand_stack(addr)) {
-      vme = find_vme(&thread_current()->vm, pg_round_down(addr));
-     }
+  if(vme == NULL & verify_stack(addr, esp)) {
+    // if(buffer + size < )
+    expand_stack(addr);
+    vme = find_vme(&thread_current()->vm, pg_round_down(addr));
   }
   if(vme == NULL) {
     printf("%s: exit(%d)\n", thread_current()->name, -1);
@@ -69,19 +71,21 @@ check_address (void * addr, void *esp)
 void
 check_valid_buffer(void*buffer, unsigned size, bool to_write, void* esp)
 {
-  // void *range = buffer;
-  // while(range < buffer + size - 1)
-  // {
-    struct vm_entry *vme = check_address(buffer, esp);
-    if(to_write && !vme->writable) {
-      printf("%s: exit(%d)\n", thread_current()->name, -1);
-      thread_current()->exit_status = -1;
-      thread_exit();
-      vme->pinned = false;
+  if(verify_stack(buffer, esp)) {
+    void* range = pg_round_down(buffer);
+    while(range < buffer + size) {
+      check_address(range, esp);
+      range += PGSIZE;
     }
-    // check_address(*(void**))
-    // range += PGSIZE;
-  // }
+  }
+  struct vm_entry *vme = check_address(buffer, esp);
+  if(to_write && !vme->writable) {
+    printf("%s: exit(%d)\n", thread_current()->name, -1);
+    thread_current()->exit_status = -1;
+    thread_exit();
+    vme->pinned = false;
+  }
+    
 }
 
 static void
@@ -236,9 +240,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+12, f->esp);
     int num = *(int *)(f->esp+4);
     void *buffer = f->esp+8;
-    check_address(*(char**)buffer, f->esp);
+    // check_address(*(char**)buffer, f->esp);
     unsigned size = *(unsigned *)(f->esp+12);
-    check_valid_buffer(*(void**)buffer, size, true, f->esp);
+    check_valid_buffer(*(void**)buffer, size, true, f->esp+12);
     int i;
     if (num == 0){
       for (i=0; i<size; i++){
@@ -369,7 +373,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       size_t zero_bytes = PGSIZE - read_bytes;
 
       struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
-      vm_entry->VPN = addr;
+      vm_entry->VPN = pg_round_down(addr);
       vm_entry->writable = true;
       vm_entry->VPtype = VM_FILE;
       vm_entry->f = f2;

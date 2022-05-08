@@ -206,6 +206,7 @@ process_exit (void)
   struct mmap_file *mmap_file;
   struct vm_entry *vm_entry;
 
+  // lock_acquire(&eviction_lock);
   if(!list_empty(&cur ->mmap_list)){
     elem = list_front(&cur->mmap_list);
     while(elem != list_end(&cur->mmap_list)) {
@@ -214,16 +215,14 @@ process_exit (void)
       while (mmap_elem != list_end(&mmap_file->vme_list))
       {
         vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
-        // if( pagedir_is_dirty(cur->pagedir, vm_entry->VPN)) {
+        if(vm_entry -> is_loaded){
           void* buffer = pagedir_get_page(cur->pagedir, vm_entry->VPN);
           if(buffer != NULL){
-          // file_lock_acquire();
-          // file_write_at(vm_entry->f, buffer, PGSIZE, vm_entry->offset);
-          // file_lock_release();
             free_page(buffer);
           }
-        // }
-        pagedir_clear_page(cur->pagedir, vm_entry->VPN);
+        }
+        // pagedir_clear_page(cur->pagedir, vm_entry->VPN);
+        
         hash_delete(&cur->vm, &vm_entry->h_elem);
         mmap_elem = list_next(mmap_elem);
         free(vm_entry);
@@ -270,6 +269,7 @@ process_exit (void)
   #ifdef VM
     vm_destroy(&cur->vm);
   #endif
+  // lock_release(&eviction_lock);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -579,7 +579,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       #ifdef VM
       struct vm_entry *vm_entry = malloc(sizeof (struct vm_entry));
       
-      vm_entry->VPN = upage;
+      vm_entry->VPN = pg_round_down(upage);
       vm_entry->writable = writable;
       vm_entry->VPtype = VM_BIN; // 맞는지 확인해야함
       vm_entry->f = file;

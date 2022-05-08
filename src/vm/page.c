@@ -48,7 +48,7 @@ find_vme (struct hash *vm, void *vaddr)
 {
     struct hash_elem *e;
     struct vm_entry vm_entry;
-    vm_entry.VPN = vaddr;
+    vm_entry.VPN = pg_round_down(vaddr);
 
     e = hash_find(vm, &vm_entry.h_elem);
     if(e == NULL) return NULL;
@@ -163,6 +163,7 @@ get_next_lru_clock(void)
 void
 __free_page(struct page *page)
 {
+    // lock_acquire(&eviction_lock);
     struct vm_entry *vme = page->vme;
     if(vme->VPtype == VM_BIN) {
         if(pagedir_is_dirty(page->thread->pagedir, vme->VPN)) {
@@ -172,9 +173,8 @@ __free_page(struct page *page)
         }
     } else if(vme->VPtype == VM_FILE) {
         if(pagedir_is_dirty(page->thread->pagedir, vme->VPN)) {
-            void* buffer = pagedir_get_page(page->thread->pagedir, vme->VPN);
             file_lock_acquire();
-            file_write_at(vme->f, buffer, PGSIZE, vme->offset);
+            file_write_at(vme->f, page->kaddr, PGSIZE, vme->offset);
             file_lock_release();
             pagedir_set_dirty(page->thread->pagedir, vme->VPN, 0);
         }
@@ -191,20 +191,25 @@ __free_page(struct page *page)
     
     palloc_free_page(page->kaddr); //????????
     free(page);
+    // lock_release(&eviction_lock);
 }
 
 void 
 try_to_free_pages(enum palloc_flags flags)
 {
+    // lock_acquire(&eviction_lock);
     struct list_elem *e = get_next_lru_clock();
     if(e == NULL) {
         curr_elem = list_head(&lru_list);
         return;
     }
+    // lock_release(&eviction_lock);
     struct page *p = list_entry(e, struct page, lru);
-    if(pagedir_is_accessed(p->thread->pagedir, p->vme->VPN)) {
+    if(p == NULL) {
+        return;
+    }else if(pagedir_is_accessed(p->thread->pagedir, p->vme->VPN)) {
         pagedir_set_accessed(p->thread->pagedir, p->vme->VPN, 0);
-    } else if (p->vme->pinned){
+    } else if (p->vme && p->vme->pinned){
         return;
     } else {
         __free_page(p);
@@ -214,6 +219,7 @@ try_to_free_pages(enum palloc_flags flags)
 struct page*
 alloc_page(enum palloc_flags flags)
 {
+    lock_acquire(&eviction_lock);
     void* palloc_page = palloc_get_page(flags);
     while (palloc_page == NULL) {
         try_to_free_pages(flags);
@@ -230,6 +236,7 @@ alloc_page(enum palloc_flags flags)
     p->thread = thread_current();
 
     add_page_to_lru_list(p);
+    lock_release(&eviction_lock);
     return p;
 }
 
