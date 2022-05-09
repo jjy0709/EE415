@@ -133,10 +133,11 @@ handle_mm_fault(struct vm_entry *vme)
       }
    }
    else if (vme->VPtype == VM_ANON) {
-      // if(vme->swap_slot > -1) {
          struct page *page = alloc_page(PAL_USER);
          page->vme = vme;
-         swap_in(vme->swap_slot, page->kaddr);
+         if((int)vme->swap_slot > -1) {
+            swap_in(vme->swap_slot, page->kaddr);
+         }
          vme->swap_slot = -1;
          if(!install_page(vme->VPN, page->kaddr, vme->writable)) {
             free_page(page);
@@ -144,7 +145,6 @@ handle_mm_fault(struct vm_entry *vme)
          }
          vme->is_loaded = true;
       }
-   // }
    else if (vme->VPtype == VM_FILE) {
       if(load_file(vme->VPN, vme)) {
          vme->is_loaded = true;

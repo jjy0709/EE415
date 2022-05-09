@@ -28,7 +28,7 @@ swap_in(size_t used_index, void* kaddr)
         block_read(swap_partition, used_index*s_per_p + s, kaddr + s*BLOCK_SECTOR_SIZE);
         s++;
     }
-    bitmap_flip(swap_bitmap, used_index);
+    bitmap_set(swap_bitmap, used_index, false);
 }
 
 size_t
@@ -48,7 +48,13 @@ swap_out(void *kaddr)
         block_write(swap_partition,index*s_per_p+s, kaddr + s*BLOCK_SECTOR_SIZE);
         s++;
     }
-    bitmap_flip(swap_bitmap, index);
+    bitmap_set(swap_bitmap, index, true);
     return index;
+}
+
+void
+swap_delete(size_t swap_slot)
+{
+    bitmap_set(swap_bitmap, swap_slot, false);
 }
 

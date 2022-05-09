@@ -207,26 +207,27 @@ process_exit (void)
   struct vm_entry *vm_entry;
 
   // lock_acquire(&eviction_lock);
+  vm_destroy(&cur->vm);
   if(!list_empty(&cur ->mmap_list)){
     elem = list_front(&cur->mmap_list);
     while(elem != list_end(&cur->mmap_list)) {
       mmap_file = list_entry(elem, struct mmap_file, elem);
-      mmap_elem = list_front(&mmap_file->vme_list);
-      while (mmap_elem != list_end(&mmap_file->vme_list))
-      {
-        vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
-        if(vm_entry -> is_loaded){
-          void* buffer = pagedir_get_page(cur->pagedir, vm_entry->VPN);
-          if(buffer != NULL){
-            free_page(buffer);
-          }
-        }
-        // pagedir_clear_page(cur->pagedir, vm_entry->VPN);
+      // mmap_elem = list_front(&mmap_file->vme_list);
+  //     while (mmap_elem != list_end(&mmap_file->vme_list))
+  //     {
+  //       vm_entry = list_entry(mmap_elem, struct vm_entry, mmap_elem);
+  //       if(vm_entry -> is_loaded){
+  //         void* buffer = pagedir_get_page(cur->pagedir, vm_entry->VPN);
+  //         if(buffer != NULL){
+  //           free_page(buffer);
+  //         }
+  //       }
+  //       // pagedir_clear_page(cur->pagedir, vm_entry->VPN);
         
-        hash_delete(&cur->vm, &vm_entry->h_elem);
-        mmap_elem = list_next(mmap_elem);
-        free(vm_entry);
-      }
+  //       hash_delete(&cur->vm, &vm_entry->h_elem);
+  //       mmap_elem = list_next(mmap_elem);
+  //       free(vm_entry);
+  //     }
       file_lock_acquire();
       file_close(mmap_file->file);
       file_lock_release();
@@ -235,6 +236,8 @@ process_exit (void)
       free(mmap_file);
     }
   }
+
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -267,7 +270,7 @@ process_exit (void)
   // palloc_free_page(cur->handler);
   #endif
   #ifdef VM
-    vm_destroy(&cur->vm);
+    // vm_destroy(&cur->vm);
   #endif
   // lock_release(&eviction_lock);
 }
@@ -587,6 +590,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       vm_entry->data_amount = page_read_bytes;
       vm_entry->is_loaded = false;
       vm_entry->swap_slot = -1;
+      vm_entry->pinned = false;
 
       if(!insert_vme(&thread_current()->vm, vm_entry)) {
         return false;
@@ -626,6 +630,7 @@ setup_stack (void **esp)
         vm_entry->VPtype = VM_ANON;
         vm_entry->is_loaded = true;
         vm_entry->swap_slot = -1;
+        vm_entry->pinned = false;
         // vm_entry->f = ;
         // vm_entry->offset = ofs; // ?????
         // vm_entry->data_amount = page_read_bytes;
@@ -680,6 +685,7 @@ expand_stack(void* addr)
         vm_entry->VPtype = VM_ANON;
         vm_entry->is_loaded = true;
         vm_entry->swap_slot = -1;
+        vm_entry->pinned = false;
         // vm_entry->f = ;
         // vm_entry->offset = ofs; // ?????
         // vm_entry->data_amount = page_read_bytes;

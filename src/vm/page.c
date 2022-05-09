@@ -12,6 +12,7 @@
 struct list lru_list;
 struct lock lru_list_lock;
 struct list_elem *curr_elem;
+struct list_elem *checked;
 
 struct lock eviction_lock;
 
@@ -78,6 +79,15 @@ static void
 vm_destroy_func(struct hash_elem *e, void *aux UNUSED)
 {
     struct vm_entry *vm_entry = hash_entry(e, struct vm_entry, h_elem);
+    if((int)vm_entry->swap_slot > -1) {
+        swap_delete(vm_entry->swap_slot);
+    }
+    if(vm_entry->is_loaded) {
+        void* buffer = pagedir_get_page(thread_current()->pagedir, vm_entry->VPN);
+        if(buffer != NULL) {
+            free_page(buffer);
+        }
+    }
     free(vm_entry);
 }
 
@@ -156,7 +166,7 @@ get_next_lru_clock(void)
 {
     curr_elem = list_next(curr_elem);
     if(curr_elem == list_end(&lru_list))
-        return NULL;
+        curr_elem = list_front(&lru_list);
     return curr_elem;
 }
 
@@ -199,18 +209,16 @@ try_to_free_pages(enum palloc_flags flags)
 {
     // lock_acquire(&eviction_lock);
     struct list_elem *e = get_next_lru_clock();
-    if(e == NULL) {
-        curr_elem = list_head(&lru_list);
-        return;
-    }
     // lock_release(&eviction_lock);
     struct page *p = list_entry(e, struct page, lru);
     if(p == NULL) {
         return;
-    }else if(pagedir_is_accessed(p->thread->pagedir, p->vme->VPN)) {
-        pagedir_set_accessed(p->thread->pagedir, p->vme->VPN, 0);
     } else if (p->vme && p->vme->pinned){
         return;
+    } else if(e == checked) {
+        __free_page(p);
+    } else if(pagedir_is_accessed(p->thread->pagedir, p->vme->VPN)) {
+        pagedir_set_accessed(p->thread->pagedir, p->vme->VPN, false);
     } else {
         __free_page(p);
     }
@@ -221,6 +229,7 @@ alloc_page(enum palloc_flags flags)
 {
     lock_acquire(&eviction_lock);
     void* palloc_page = palloc_get_page(flags);
+    checked = curr_elem;
     while (palloc_page == NULL) {
         try_to_free_pages(flags);
         palloc_page = palloc_get_page(flags);

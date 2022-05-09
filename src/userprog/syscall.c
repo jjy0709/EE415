@@ -381,6 +381,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       vm_entry->data_amount = read_bytes;
       vm_entry->is_loaded = false;
       vm_entry->swap_slot = -1;
+      vm_entry->pinned = false;
     
       if(!insert_vme(&thread_current()->vm, vm_entry)) {
         goto done;
