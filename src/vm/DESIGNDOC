@@ -8,9 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Hangyeol Kim (khk070623@kaist.ac.kr)
+Jiyeong Jeong (jjy0709@kaist.ac.kr)
 
 ---- PRELIMINARIES ----
 
@@ -21,6 +20,8 @@ FirstName LastName <email@domain.example>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
+We referred to the last Lab materials provided.
+
 			PAGE TABLE MANAGEMENT
 			=====================
 
@@ -30,24 +31,75 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+type definition for VM_entry type
+enum VP_type {
+    VM_BIN = 0,
+    VM_FILE = 1,
+    VM_ANON = 2
+};
+
+struct vm_entry {
+    enum VP_type VPtype;			vm_entry type
+    void* VPN;						virtual address
+    struct hash_elem h_elem;		hash_elem for managing vm_entries in thread vm hash
+    bool writable;					if vm_entry is writable
+
+    bool is_loaded;					if physical memory is allocated to this entry
+    struct file *f;					for file where data is read from/written to
+    
+    struct list_elem mmap_elem;		list_elem for managing mmap
+
+    off_t offset;					offset for file read or write operation
+    size_t data_amount;				how much data is read or written
+
+    size_t swap_slot;				swap slot for swapping
+
+    bool pinned;					for synchronization
+};
+
+struct thread {
+    struct hash vm;					thread hash structure for vm_entry managment
+}
+
+struct lock eviction_lock;			lock for atomically implement page alloctation
+
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
+먼저 virtual address와 주소의 역할에 따라 vm_entry를 생성하고 thread->vm에 넣어준다.
+그 후 vm_entry로 접근할 때, physical memory가 할당되어 있지 않으면 page_fault에서
+주소 확인 후 fault를 handle한다. Vm_entry의 타입에 따라 physical memory를 할당하고
+필요할 경우 file에서 data를 read하거나 swap_slot에서 데이터를 읽어들인다.
+이때 file의 경우 vm_entry 의 f와 offset 값을 통해 정해진 위치에서부터 데이터를 읽어오고
+read_bytes가 PGSIZE보다 작을 경우 zero로 memset을 해준다. Swap slot의 경우 swap에
+저장 되어 있을 경우 내용을 읽어오고 swap_slot을 비워준다. 그렇지 않을 경우 새로운 page를
+할당하여 넣어준다.
+
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
+pagedir.h의 함수들을 이용하여 dirty bit과 access bit을 확인할 수 있다.
+vm_entry->VPN과 thread_current()->vm, pagedir_is_accessed 등의 함수를 통해
+dirty/accessed bit을 확인하고 상황에 따라 handle하도록 하였다.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
+alloc_page에서 page를 할당하도록 하였는데 alloc_page의 처음과 끝에 lock을 acquire/release
+하도록하여 alloc_page가 atomic하게 일어나도록 하여 서로 다른 process에서 page를 할당하고자
+할때 같은 frame을 할당받게 되는 것을 피해주었다.
+
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+빠른 연산을 위해 hash table structure를 선택하였다.
 
 		       PAGING TO AND FROM DISK
 		       =======================
@@ -58,18 +110,43 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct list lru_list;					list of all allocated physical pages
+struct lock lru_list_lock;				lock for managing lru_list
+struct list_elem *curr_elem;			list_elem for implementing clock algorithm to choose victime page(page to evict)
+struct list_elem *checked;				list_elem to check whether victim page checking done for all elems
+
+struct page {
+    void *kaddr;  						physical address for page
+    struct vm_entry *vme;				vm_entry which page allocated to
+    struct thread *thread;				thread which page allocated to
+    struct list_elem lru;				list_elem for lru list
+};
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+lru list 안에 현재 가르키고 있는 elem을 curr_elem 을 통해 확인할 수 있다.
+curr_elem을 통해 확인된 page의 accessed bit이 1일 경우 넘어가고 0일 경우 그 page를 
+free한다. curr_elem 이 list의 끝을 가리키고 있으면 다시 맨 처음 elem을 가리키도록 하였고
+다른 값들을 통해 synchroniztion 등을 구현하였다.
+checked를 통해 이 확인 과정이 모든 lru list의 elem을 돌았을 경우 첫 page를 evict하도록 하였다.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+page를 free 할 때 vme member에 접근하여 pagedir에서 clear하도록 하였다.
+이를 통해 Q의 vm_entry가 clear 되어 다시 Q의 virtual address를 접근하면 page fault가
+뜨게 되고 이는 Q가 더 이상 frame을 가지고 있지 않음을 나타낸다.
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+stack pointer 주소와의 비교를 통해 stack 위치의 메모리 접근이 일어날 경우
+유효한 주소에 한해서 stack extension이 일어나도록 하였다.
 
 ---- SYNCHRONIZATION ----
 
@@ -78,21 +155,37 @@ FirstName LastName <email@domain.example>
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+메모리 할당을 위해서 eviction_lock을 사용하였고 이 lock이 다른 곳에 사용되지 않았기
+때문에 deadlock 을 막을 수 있다. 또한 sychronization을 위해 lock 외의 다른 method 
+등을 사용하였다.
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
 
+Q가 page를 access하거나 modify 하는 과정은 syscall등에서 file read나 write 등을
+하는 과정이다. 여기서 Q가 syscall 에서 physical page를 할당받으면 그에 따른 vm_entry
+의 pinned member를 true로 설정해주고 evict할 page를 고르는 과정에서 vm_entry가 pin되어
+있을 경우 그냥 넘기도록 하여 사용중인 page는 evict하지 않도록 해주었다. 또한 accessed bit
+이 설정되어 있을 경우에도 같은 과정을 진행하도록 하여 해결해주었다.
+
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
-Q가 
+
+evict할 page를 고르는 과정에서 accessed bit을 확인하는 과정을 통해 해결하였다.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+vm_entry의 pinned field를 통해 구현해주었다.
+invalid virtual address로의 접근의 경우 check_address 함수를 수정하여
+해결해주었다.
 
 ---- RATIONALE ----
 
@@ -103,6 +196,9 @@ Q가
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+많은 lock을 사용할 경우 dead lock 또는 lock에 의해 발생할 수 있는 문제 경우들로
+인해 하나의 lock을 사용하고 struct의 여러 field를 통해 sychronization을 구현하였다.
+
 			 MEMORY MAPPED FILES
 			 ===================
 
@@ -112,14 +208,38 @@ Q가
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct mmap_file {
+    int mapid;					mmap id
+    struct file *file;			reopened file
+    struct list_elem elem;		list_elem for mmap_list of thread
+    struct list vme_list;		vme_list for vm_entries made by mmap
+};
+
+struct thread {
+	struct list mmap_list;		thread mmap file list
+}
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
+mmap 과정을 통해 file 크기에 따라 vm_entry를 할당한다. 그 후 vm_entry가 접근
+되었을 경우 file에서 읽거나 file에 쓰는 등의 operation을 진행한다. mmap_file에
+열린 파일의 경우 munmap이나 process_exit 과정에만 파일을 닫고 수정사항이 있을 경우
+file에 write back 해주었다. swap page와 다른 page와는 다른 점은 vm_entry의 경우
+mmap_file에 의해서도 접근할 수 있다는 점과 page가 deallocate될 경우 file에 다시
+write back한다는 점이다. 또한 file이 reopen 되었기 때문에 thread의 fd를 close하는
+경우에도 접근할 수 있다는 점이 있다.
+
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+
+mmap system call을 진행하는 과정에서 argument로 입력된 vaddr부터 file의 size
+크기 만큼의 주소가 thread의 vm에 존재하는지 확인한다. 만약 존재할 경우 mmap system call
+을 실패하고, vm_entry가 존재하지 않을 경우에만 할당하도록 하였다. 이를 통해
+existing segment를 overlap하는 경우를 피하였다.
 
 ---- RATIONALE ----
 
@@ -129,6 +249,10 @@ Q가
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+두 vm_entry의 VPtype이 다르기 때문에 page가 free될 경우 bin의 경우 swap을 실행하고
+mmap의 경우 file write를 실행하도록 하였다. 그러나 처음 file에서 읽어오는 과정의 경우
+같은 load_file 함수를 사용하여 code를 share하도록 하였다.
 
 			   SURVEY QUESTIONS
 			   ================
