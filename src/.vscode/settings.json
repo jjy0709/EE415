@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "buffer_cache.h": "c",
+        "synch.h": "c"
+    }
+}

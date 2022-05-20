@@ -7,7 +7,8 @@
             ],
             "defines": [
                 "VM",
-                "USERPROG"
+                "USERPROG",
+                "FILESYS"
             ],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "gnu11",
