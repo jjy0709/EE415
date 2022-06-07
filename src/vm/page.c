@@ -7,6 +7,7 @@
 #include "userprog/syscall.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "threads/malloc.h"
 #include "vm/swap.h"
 
 struct list lru_list;

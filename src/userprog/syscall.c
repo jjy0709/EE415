@@ -13,30 +13,35 @@
 #include "devices/input.h"
 #include "vm/page.h"
 #include "userprog/pagedir.h"
+#include "filesys/inode.h"
+#include "filesys/directory.h"
+#include "threads/malloc.h"
 
 static void syscall_handler (struct intr_frame *);
 
-struct lock file_lock;
+// struct lock file_lock;
 
 void
 file_lock_acquire()
 {
-  if(file_lock.holder != thread_current())
-    lock_acquire(&file_lock);
+  // if(file_lock.holder != thread_current())
+  //   lock_acquire(&file_lock);
+  return;
 }
 
 void
 file_lock_release()
 {
-  if(file_lock.holder == thread_current())
-    lock_release(&file_lock);
+  // if(file_lock.holder == thread_current())
+  //   lock_release(&file_lock);
+  return;
 }
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&file_lock);
+  // lock_init(&file_lock);
 }
 
 // bool
@@ -170,7 +175,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_exit();
     }
     file_lock_acquire();
-    bool res= filesys_create(fname, size);
+    bool res= filesys_create(fname, size, 1);
     file_lock_release();
     f->eax = res;
     break;
@@ -226,9 +231,13 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *a = thread_current()->fd[num];
-    file_lock_acquire();
-    int res = (int)file_length(a);
-    file_lock_release();
+    int res = -1;
+    struct inode *inode = file_get_inode(a);
+    if (inode_is_file(inode)){
+      file_lock_acquire();
+      res = (int) file_length(a);
+      file_lock_release();
+    }
     f->eax = res;
     break;
   }
@@ -252,9 +261,12 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
     else{
       struct file *filename = thread_current()->fd[num];
-      file_lock_acquire();
-      off_t res = file_read(filename, *(void **)buffer, (off_t)size);
-      file_lock_release();
+      off_t res = -1;
+      if (inode_is_file(file_get_inode(filename))){
+        file_lock_acquire();
+        res = file_read(filename, *(void **)buffer, (off_t)size);
+        file_lock_release();
+      }
       f->eax = res;
     }
     break;
@@ -283,9 +295,12 @@ syscall_handler (struct intr_frame *f UNUSED)
       if(filename == NULL) {
         f->eax = -1;
       } else {
-        file_lock_acquire();
-        off_t res = file_write(filename, *(const void **)buffer, (off_t)size);
-        file_lock_release();
+        off_t res = -1;
+        if (inode_is_file(file_get_inode(filename))){
+          file_lock_acquire();
+          res = file_write(filename, *(const void **)buffer, (off_t)size);
+          file_lock_release();
+        }
         f->eax = res;
       }
     }
@@ -299,9 +314,11 @@ syscall_handler (struct intr_frame *f UNUSED)
     int num = *(int *)(f->esp+4);
     off_t off = *(off_t *)(f->esp+8);
     struct file *filename = thread_current()->fd[num];
-    file_lock_acquire();
-    file_seek(filename, off);
-    file_lock_release();
+    if (inode_is_file(file_get_inode(filename))){
+      file_lock_acquire();
+      file_seek(filename, off);
+      file_lock_release();
+    }
     break;
   }
   // SYS_TELL
@@ -310,9 +327,12 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
-    file_lock_acquire();
-    off_t res = file_tell(filename);
-    file_lock_release();
+    off_t res = -1;
+    if (inode_is_file(file_get_inode(filename))){
+      file_lock_acquire();
+      res = file_tell(filename);
+      file_lock_release();
+    }
     f->eax = res;
     break;
   }
@@ -321,12 +341,20 @@ syscall_handler (struct intr_frame *f UNUSED)
     check_address(f->esp+4, f->esp);
     int num = *(int *)(f->esp+4);
     struct file *filename = thread_current()->fd[num];
-    file_lock_acquire();
-    file_close(filename);
-    file_lock_release();
+    struct inode *inode = file_get_inode(filename);
+    if (inode != NULL){
+      if (!inode_is_file(inode)){
+        struct dir *dir = (struct dir *)filename;
+        dir_close(dir);
+      }
+      else {
+        file_close(filename);;
+      }
+    }
     thread_current()->fd[num]=NULL;
     break;
   }
+
   case SYS_MMAP:
   {
     check_address(f->esp+4, f->esp);
@@ -421,6 +449,98 @@ syscall_handler (struct intr_frame *f UNUSED)
     
     break;
   }
+
+  case SYS_CHDIR:
+  {
+    check_address(f->esp+4, f->esp);
+    const char *fname = *(char **)(f->esp+4);
+    bool success = filesys_chdir(fname);
+    f->eax = success;
+    break;
+  }
+
+  case SYS_MKDIR:
+  {
+    check_address(f->esp+4, f->esp);
+    const char *fname = *(char **)(f->esp+4);
+    bool success = filesys_create(fname, 0, 0);
+    f->eax = success;
+    break;
+  }
+
+  case SYS_READDIR:
+  {
+    check_address(f->esp+4, f->esp);
+    check_address(f->esp+8, f->esp);
+    int num = *(int *)(f->esp+4);
+    struct file *filename = thread_current()->fd[num];
+    const char *fname = *(char **)(f->esp+8);
+    if (filename == NULL){
+      f->eax = false;
+    }
+    else {
+      struct inode *inode = file_get_inode(filename);
+      if (inode == NULL){
+        f->eax = false;
+      }
+      else{
+        if (inode_is_file(inode)){
+          f->eax = false;
+        }
+        else{
+          struct dir *dir = (struct dir*) filename;
+          f->eax = dir_readdir(dir, fname);
+        }
+      }
+    }
+    break;
+  }
+
+  case SYS_ISDIR:
+  {
+    check_address(f->esp+4, f->esp);
+    int num = *(int *)(f->esp+4);
+    struct file *filename = thread_current()->fd[num];
+    if (filename == NULL){
+      f->eax = false;
+    }
+    else {
+      struct inode *inode = file_get_inode(filename);
+      if (inode == NULL){
+        f->eax = false;
+      }
+      else {
+        if (inode_is_file(inode)){
+          f->eax = false;
+        }
+        else {
+          f->eax = true;
+        }
+      }
+    }
+    break;
+  }
+
+  case SYS_INUMBER:
+  {
+    check_address(f->esp+4, f->esp);
+    int num = *(int *)(f->esp+4);
+    struct file *filename = thread_current()->fd[num];
+    if (filename == NULL){
+      f->eax = -1;
+    }
+    else {
+      struct inode *inode = file_get_inode(filename);
+      if (inode == NULL){
+        f->eax = -1;
+      }
+      else {
+        f->eax = inode_sector(inode);
+      }
+    }
+    break;
+  }
+
   default:
   break;
   }
@@ -428,7 +548,6 @@ syscall_handler (struct intr_frame *f UNUSED)
     vme->pinned = false;
   // thread_exit ();
 }
-
 // SYS_EXIT,                   /* Terminate this process. */
 //     SYS_EXEC,                   /* Start another process. */
 //     SYS_WAIT,                   /* Wait for a child process to die. */

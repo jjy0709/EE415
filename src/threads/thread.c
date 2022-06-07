@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "filesys/directory.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -215,6 +216,9 @@ thread_create (const char *name, int priority,
     // sema_init(&t->wait_sema, 0);
     // t->fd[0] = 
   #endif
+
+  if (thread_current()->cur_dir != NULL) t->cur_dir = dir_reopen(thread_current()->cur_dir);
+
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -483,6 +487,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->cur_dir = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
