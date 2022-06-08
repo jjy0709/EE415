@@ -108,6 +108,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     break;
   }
   // EXIT
+  // to_fix
   case SYS_EXIT:
   {
     check_address(f->esp+4, f->esp);

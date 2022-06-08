@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "directory.h": "c"
+        "directory.h": "c",
+        "bitmap.h": "c"
     }
 }

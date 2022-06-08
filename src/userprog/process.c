@@ -123,8 +123,11 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name_);
 
-  if (!success) 
+  if (!success) {
     thread_exit ();
+    file_allow_write (thread_current()->cur_file);
+    file_close (thread_current()->cur_file);
+  }
   else
     thread_current()->exec_success = true;
   
@@ -147,6 +150,8 @@ start_process (void *file_name_)
   // hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
   palloc_free_page(argv);
   palloc_free_page(fn_copy);
+
+  if (thread_current()->cur_dir == NULL) thread_current()->cur_dir = dir_open_root();
   
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -389,6 +394,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
+  t->cur_file = file;
+  file_deny_write(t->cur_file);
+
   // file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr

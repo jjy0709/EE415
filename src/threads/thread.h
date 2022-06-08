@@ -100,6 +100,7 @@ struct thread
     struct list_elem elem;              /* List element. */
     // Current working directory
     struct dir *cur_dir;
+    struct file *cur_file;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

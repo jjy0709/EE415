@@ -181,12 +181,13 @@ name_to_dir(const char* full_path)
   char *cur = NULL;
   char *prev = NULL;
   char *saveptr = NULL;
-  cur = strtok_r(path, "/", &saveptr);
+  prev = strtok_r(path, "/", &saveptr);
+  cur = strtok_r(NULL, "/", &saveptr);
   while (cur != NULL){
-    prev = cur;
-    cur = strtok_r(NULL, "/", &saveptr);
     struct inode* inode;
     if(is_current(prev)){
+      prev = cur;
+      cur = strtok_r(NULL, "/", &saveptr);
       continue;
     }
     else if(is_prev(prev)){
@@ -211,6 +212,8 @@ name_to_dir(const char* full_path)
       dir_close(dir);
       dir = dir_open(inode);
     }
+    prev = cur;
+    cur = strtok_r(NULL, "/", &saveptr);
   } 
 
   return dir;
