@@ -152,8 +152,8 @@ inode_create (block_sector_t sector, off_t length, uint32_t is_file)
   if (disk_inode != NULL)
     {
       node = calloc (1, sizeof *node);
-      inode_extend(node, length);
-      disk_inode->length = length;
+      
+      disk_inode->length = inode_extend(node, length);
       disk_inode->magic = INODE_MAGIC;
       disk_inode->direct_index = node->direct_index;
       disk_inode->indirect_index = node->indirect_index;
@@ -225,6 +225,7 @@ inode_open (block_sector_t sector)
 
   inode->is_file = disk_inode->is_file;
   inode->prev = disk_inode->prev;
+  free(disk_inode);
   return inode;
 }
 

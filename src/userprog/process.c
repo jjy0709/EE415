@@ -20,6 +20,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "filesys/inode.h"
 #include "vm/page.h"
 
 static thread_func start_process NO_RETURN;
@@ -124,9 +125,9 @@ start_process (void *file_name_)
   palloc_free_page (file_name_);
 
   if (!success) {
-    thread_exit ();
-    file_allow_write (thread_current()->cur_file);
     file_close (thread_current()->cur_file);
+    thread_exit ();
+
   }
   else
     thread_current()->exec_success = true;
@@ -267,7 +268,15 @@ process_exit (void)
     if(cur->fd[i] == NULL) continue;
     else {
       file_lock_acquire();
-      file_close(cur->fd[i]);
+      struct inode *inode = file_get_inode(cur->fd[i]);
+      if (!inode) continue;
+      if (inode_is_file(inode)){
+        file_close(cur->fd[i]);
+      }
+      else {
+        struct dir *dir = (struct dir *)(cur->fd[i]);
+        dir_close(dir);
+      }
       file_lock_release();
     }
   }
@@ -395,9 +404,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done; 
     }
   t->cur_file = file;
-  file_deny_write(t->cur_file);
-
-  // file_deny_write(file);
+  file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)

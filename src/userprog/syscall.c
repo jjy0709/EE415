@@ -108,13 +108,18 @@ syscall_handler (struct intr_frame *f UNUSED)
     break;
   }
   // EXIT
-  // to_fix
   case SYS_EXIT:
   {
     check_address(f->esp+4, f->esp);
     int status = *(int *)(f->esp+4);
     printf("%s: exit(%d)\n", thread_current()->name, status);
     thread_current()->exit_status = status;
+    if (thread_current()->cur_dir != NULL){
+      dir_close(thread_current()->cur_dir);
+    }
+    if (thread_current()->cur_file != NULL){
+      file_close(thread_current()->cur_file);
+    }
     f->eax = status;
     vme->pinned = false;
     thread_exit();

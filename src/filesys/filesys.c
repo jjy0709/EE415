@@ -53,6 +53,10 @@ filesys_create (const char *name, off_t initial_size, uint32_t is_file)
   block_sector_t inode_sector = 0;
   struct dir *dir = name_to_dir(name);
   char *name2 = extract_name(name);
+  if (!strlen(name)){
+    free(name2);
+    return false;
+  }
 
   bool success = false;
   if (!(is_current(name2) || is_prev(name2))){
@@ -79,6 +83,10 @@ filesys_open (const char *name)
 {
   struct dir *dir = name_to_dir(name);
   char *name2 = extract_name(name);
+  if (!strlen(name)){
+    free(name2);
+    return NULL;
+  }
   struct inode *inode = NULL;
 
   if (dir != NULL){
@@ -129,6 +137,10 @@ filesys_remove (const char *name)
 {
   struct dir *dir = name_to_dir(name);
   char *name2 = extract_name(name);
+  if (!strlen(name)) {
+    free(name2);
+    return false;
+  }
   bool success = dir != NULL && dir_remove (dir, name2);
   dir_close (dir); 
   free(name2);
@@ -151,10 +163,10 @@ char*
 extract_name(const char* full_path)
 {
   char path[strlen(full_path) + 1];
-  memcpy(path, full_path, strlen(full_path) + 1);
+  memcpy(path, full_path, strlen(full_path) + 1);  
 
-  char *cur = NULL;
-  char *prev = NULL;
+  char *cur = "";
+  char *prev = "";
   char *saveptr = NULL;
   cur = strtok_r(path, "/", &saveptr);
   while (cur != NULL){
@@ -162,6 +174,9 @@ extract_name(const char* full_path)
     cur = strtok_r(NULL, "/", &saveptr);
   } 
   // Need to free name afterwards
+  // if (prev==NULL){
+  //   return NULL;
+  // }
   char* name = (char *)malloc(strlen(prev) + 1);
   memcpy(name, prev, strlen(prev));
   name[strlen(prev)] = '\0';
@@ -224,6 +239,7 @@ filesys_chdir(const char* name)
 {
   struct dir* dir = name_to_dir(name);
   char* name2 = extract_name(name);
+  if (name2 == NULL) return false;
   struct inode *inode = NULL;
   
   if (dir == NULL) 
