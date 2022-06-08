@@ -89,12 +89,17 @@ added cur_dir and cur_file in thread.
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
 
+any path is cut into dir and name, so first we find the dir that has the 
+directory name of what we're looking for, and then we find a file named name in
+that directory.
+
 ---- SYNCHRONIZATION ----
 
 >> B4: How do you prevent races on directory entries?  For example,
 >> only one of two simultaneous attempts to remove a single file
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
+
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
@@ -115,14 +120,35 @@ added cur_dir and cur_file in thread.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+static char p_buffer_cache[BUFFER_CACHE_ENTRY_NB * BLOCK_SECTOR_SIZE];      : For buffer data
+static struct buffer_head buffer_head[BUFFER_CACHE_ENTRY_NB];               : For buffer entry
+struct buffer_head *clock_hand;                                             : For clock algorithm when evicting buffer
+
+struct buffer_head
+{
+    bool dirty;                 : if cache data is dirty or not
+    bool used;                  : is used or not
+    bool referenced;            : is referenced or not / for clock algorithm
+    struct lock lock;           : for synchronization of read & write
+    block_sector_t sector;      : block sector of cache
+    void* data;                 : pointer to data
+};
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
 
+It turns around the buffer_heads and find buffer_head which is not referenced.
+If it is referenced, it changes referenced value and if is not, it evicts cache block.
+
 >> C3: Describe your implementation of write-behind.
 
+It writes data when flushed. Until flush, it do not write to memory.
+
 >> C4: Describe your implementation of read-ahead.
+
+It reads to cache before returning data.
 
 ---- SYNCHRONIZATION ----
 
@@ -130,8 +156,12 @@ added cur_dir and cur_file in thread.
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
+It is done by lock in buffer_head structure.
+
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
+
+It is done by lock_bh.
 
 ---- RATIONALE ----
 
