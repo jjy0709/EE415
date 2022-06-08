@@ -404,16 +404,11 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
     while (size > 0) 
       {
-        /* Sector to write, starting byte offset within sector. */
         block_sector_t sector_idx = byte_to_sector (inode, offset, false);
         int sector_ofs = offset % BLOCK_SECTOR_SIZE;
-
-        /* Bytes left in inode, bytes left in sector, lesser of the two. */
         off_t inode_left = inode_length (inode) - offset;
         int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
         int min_left = inode_left < sector_left ? inode_left : sector_left;
-
-        /* Number of bytes to actually write into this sector. */
         int chunk_size = size < min_left ? size : min_left;
         if (chunk_size <= 0)
           break;
@@ -431,16 +426,11 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
   while (size > 0) 
     {
-      /* Sector to write, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode, offset, false);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
-
-      /* Bytes left in inode, bytes left in sector, lesser of the two. */
       off_t inode_left = inode_length (inode) - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = inode_left < sector_left ? inode_left : sector_left;
-
-      /* Number of bytes to actually write into this sector. */
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
@@ -548,7 +538,7 @@ inode_extend (struct inode *inode, off_t to_extend)
     bc_write(inode->double_indirect_block, &double_indirect_block, 0, BLOCK_SECTOR_SIZE, 0);
     if (inode->double_indirect_index == NUM_BLOCK && to_grow != 0){
       // Trying to allocate too large file
-      return -1;
+      return 0;
     }
   }  
   return to_extend;

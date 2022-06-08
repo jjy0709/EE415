@@ -187,7 +187,7 @@ __free_page(struct page *page)
     } else if(vme->VPtype == VM_FILE) {
         if(pagedir_is_dirty(page->thread->pagedir, vme->VPN)) {
             file_lock_acquire();
-            file_write_at(vme->f, page->kaddr, inode_length(file_get_inode(vme->f)), vme->offset);
+            file_write_at(vme->f, page->kaddr, vme->data_amount, vme->offset);
             file_lock_release();
             pagedir_set_dirty(page->thread->pagedir, vme->VPN, 0);
         }
